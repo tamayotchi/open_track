@@ -1,9 +1,8 @@
 import Config
-config :ash, policies: [show_policy_breakdowns?: true]
 
 # Configure your database
-config :open_track, OpenTrack.Repo,
-  database: Path.expand("../open_track_dev.db", __DIR__),
+config :app_name, AppName.Repo,
+  database: Path.expand("../app_name_dev.db", __DIR__),
   pool_size: 5,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true
@@ -14,17 +13,17 @@ config :open_track, OpenTrack.Repo,
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :open_track, OpenTrackWeb.Endpoint,
+config :app_name, AppNameWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("PORT") || "4000")],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "gZYL72G63twNx7x9bHvpsAY5We6TepGYUkh9JONUQVJweWAoXuZJ45bqP1KqWvGO",
+  secret_key_base: "5hXXrnqV20vRhI9jGJOFcUmVBcCtV5dFxMKW+Mu6XE2CV5PERpgyAAXOHDyidXIy",
   watchers: [
-    esbuild: {Esbuild, :install_and_run, [:open_track, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:open_track, ~w(--watch)]}
+    esbuild: {Esbuild, :install_and_run, [:app_name, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:app_name, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -51,17 +50,17 @@ config :open_track, OpenTrackWeb.Endpoint,
 # different ports.
 
 # Watch static and templates for browser reloading.
-config :open_track, OpenTrackWeb.Endpoint,
+config :app_name, AppNameWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
       ~r"priv/static/(?!uploads/).*(js|css|png|jpeg|jpg|gif|svg)$",
-      ~r"lib/open_track_web/(?:controllers|live|components|router)/?.*\.(ex|heex)$"
+      ~r"lib/app_name_web/(?:controllers|live|components|router)/?.*\.(ex|heex)$"
     ]
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :open_track, dev_routes: true
+config :app_name, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

@@ -1,9 +1,9 @@
-defmodule OpenTrack.MixProject do
+defmodule AppName.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :open_track,
+      app: :app_name,
       version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -11,8 +11,7 @@ defmodule OpenTrack.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader],
-      consolidate_protocols: Mix.env() != :dev
+      listeners: [Phoenix.CodeReloader]
     ]
   end
 
@@ -21,7 +20,7 @@ defmodule OpenTrack.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {OpenTrack.Application, []},
+      mod: {AppName.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end
@@ -41,8 +40,6 @@ defmodule OpenTrack.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:sourceror, "~> 1.8", only: [:dev, :test]},
-      {:ash, "~> 3.0"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
@@ -65,8 +62,7 @@ defmodule OpenTrack.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"},
-      {:igniter, "~> 0.6", only: [:dev, :test]}
+      {:bandit, "~> 1.5"}
     ]
   end
 
@@ -83,10 +79,10 @@ defmodule OpenTrack.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind open_track", "esbuild open_track"],
+      "assets.build": ["compile", "tailwind app_name", "esbuild app_name"],
       "assets.deploy": [
-        "tailwind open_track --minify",
-        "esbuild open_track --minify",
+        "tailwind app_name --minify",
+        "esbuild app_name --minify",
         "phx.digest"
       ],
       precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
