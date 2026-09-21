@@ -12,7 +12,29 @@ defmodule OpenTrack.MixProject do
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      consolidate_protocols: Mix.env() != :dev
+      consolidate_protocols: Mix.env() != :dev,
+      usage_rules: usage_rules()
+    ]
+  end
+
+  defp usage_rules do
+    [
+      file: "AGENTS.md",
+      skills: [
+        location: ".pi/skills",
+        build: [
+          "ash-framework": [
+            description:
+              "Use this skill working with Ash Framework or any of its extensions. Always consult this when making any domain changes, features or fixes.",
+            usage_rules: [:ash, ~r/^ash_/]
+          ],
+          "phoenix-framework": [
+            description:
+              "Use this skill working with Phoenix Framework. Consult this when working with the web layer, controllers, views, liveviews etc.",
+            usage_rules: [:phoenix]
+          ]
+        ]
+      ]
     ]
   end
 
@@ -41,6 +63,7 @@ defmodule OpenTrack.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:usage_rules, "~> 1.0", only: [:dev]},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:ash, "~> 3.0"},
       {:phoenix, "~> 1.8.1"},
@@ -78,7 +101,8 @@ defmodule OpenTrack.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
+      # `mix setup` also regenerates the agent skills in .pi/skills
+      setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build", "usage_rules.sync"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
