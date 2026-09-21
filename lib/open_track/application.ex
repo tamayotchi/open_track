@@ -17,7 +17,8 @@ defmodule OpenTrack.Application do
       # Start a worker by calling: OpenTrack.Worker.start_link(arg)
       # {OpenTrack.Worker, arg},
       # Start to serve requests, typically the last entry
-      OpenTrackWeb.Endpoint
+      OpenTrackWeb.Endpoint,
+      {AshAuthentication.Supervisor, [otp_app: :open_track]}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
