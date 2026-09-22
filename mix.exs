@@ -5,7 +5,7 @@ defmodule OpenTrack.MixProject do
     [
       app: :open_track,
       version: "0.1.0",
-      elixir: "~> 1.15",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -69,6 +69,10 @@ defmodule OpenTrack.MixProject do
       {:usage_rules, "~> 1.0", only: [:dev]},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:ash, "~> 3.0"},
+      # AshStorage has not been released on Hex yet; pin the reviewed revision.
+      {:ash_storage,
+       github: "ash-project/ash_storage", ref: "790dbc1082b9c160d4357de563fe3e101c519e70"},
+      {:req_s3, "~> 0.2"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},

@@ -11,13 +11,6 @@ defmodule OpenTrack.Accounts.User.Settings do
     domain: OpenTrack.Accounts,
     authorizers: [Ash.Policy.Authorizer]
 
-  code_interface do
-    define :get_settings, action: :read, get_by: [:id]
-    define :get_settings_for_user, action: :read, get_by: [:user_id]
-    define :create_settings, action: :create
-    define :update_settings, action: :update
-  end
-
   actions do
     defaults [:read, :update, :destroy]
 
@@ -29,7 +22,11 @@ defmodule OpenTrack.Accounts.User.Settings do
   end
 
   policies do
-    policy always() do
+    policy action_type(:create) do
+      authorize_if relating_to_actor(:user)
+    end
+
+    policy action_type([:read, :update, :destroy]) do
       authorize_if expr(user_id == ^actor(:id))
     end
   end

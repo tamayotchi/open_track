@@ -57,7 +57,7 @@ config :spark,
 config :open_track,
   ecto_repos: [OpenTrack.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: [OpenTrack.Accounts]
+  ash_domains: [OpenTrack.Storage, OpenTrack.Food, OpenTrack.Accounts]
 
 # Configures the endpoint
 config :open_track, OpenTrackWeb.Endpoint,

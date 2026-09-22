@@ -3,7 +3,7 @@ defmodule OpenTrack.Accounts.User do
     otp_app: :open_track,
     domain: OpenTrack.Accounts,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAuthentication]
+    extensions: [AshAuthentication, AshStorage]
 
   authentication do
     add_ons do
@@ -30,9 +30,25 @@ defmodule OpenTrack.Accounts.User do
     end
   end
 
-  code_interface do
-    define :get_user_by_id, action: :read, get_by: [:id]
-    define :get_user_by_email, action: :get_by_email, get_by: [:email]
+  storage do
+    # Like FoodPhoto, configure R2 at compile time and resolve credentials at runtime.
+    if System.get_env("R2_ACCOUNT_ID") do
+      service {AshStorage.Service.S3,
+               bucket: "open-track",
+               prefix: "avatars/",
+               endpoint_url:
+                 "https://#{System.fetch_env!("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com",
+               region: "auto",
+               access_key_id_env: "R2_ACCESS_KEY_ID",
+               secret_access_key_env: "R2_SECRET_ACCESS_KEY",
+               presigned: true,
+               expires_in: 300}
+    end
+
+    blob_resource OpenTrack.Storage.Blob
+    attachment_resource OpenTrack.Storage.UserAttachment
+
+    has_one_attached :avatar, dependent: :purge
   end
 
   actions do
@@ -43,6 +59,14 @@ defmodule OpenTrack.Accounts.User do
       argument :subject, :string, allow_nil?: false
       get? true
       prepare AshAuthentication.Preparations.FilterBySubject
+    end
+
+    update :update_avatar do
+      accept []
+      require_atomic? false
+      argument :uploaded_avatar, :file, allow_nil?: false
+
+      change {AshStorage.Changes.AttachFile, argument: :uploaded_avatar, attachment: :avatar}
     end
 
     update :change_password do
@@ -166,6 +190,10 @@ defmodule OpenTrack.Accounts.User do
   policies do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
       authorize_if always()
+    end
+
+    policy action([:read, :update_avatar, :attach_avatar, :detach_avatar, :purge_avatar]) do
+      authorize_if expr(id == ^actor(:id))
     end
   end
 

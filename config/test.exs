@@ -3,6 +3,10 @@ config :open_track, token_signing_secret: "iqs8owz38g37IVNr/sxQ6rojZJG/CT+X"
 config :bcrypt_elixir, log_rounds: 1
 config :ash, policies: [show_policy_breakdowns?: true]
 
+# This stores only file bytes in memory; it is not an Ash persistence data layer.
+config :open_track, OpenTrack.Food.FoodPhoto, storage: [service: {AshStorage.Service.Test, []}]
+config :open_track, OpenTrack.Accounts.User, storage: [service: {AshStorage.Service.Test, []}]
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
