@@ -9,10 +9,21 @@ defmodule OpenTrack.Accounts.User.Settings do
   use Ash.Resource,
     otp_app: :open_track,
     domain: OpenTrack.Accounts,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    data_layer: AshSqlite.DataLayer
+
+  sqlite do
+    table "settings"
+    repo OpenTrack.Repo
+  end
 
   actions do
-    defaults [:read, :update, :destroy]
+    defaults [:read, :destroy]
+
+    update :update do
+      primary? true
+      accept [:target_weight_kg, :target_body_fat_percent]
+    end
 
     create :create do
       accept [:target_weight_kg, :target_body_fat_percent]

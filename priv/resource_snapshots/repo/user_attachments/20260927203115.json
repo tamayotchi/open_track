@@ -1,0 +1,111 @@
+{
+  "attributes": [
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "id",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": true,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "user_id",
+      "references": {
+        "name": "user_attachments_user_id_fkey",
+        "table": "users",
+        "multitenancy": {
+          "global": null,
+          "strategy": null,
+          "attribute": null
+        },
+        "destination_attribute": "id",
+        "primary_key?": true,
+        "deferrable": false,
+        "match_tenant?": false,
+        "on_delete": null,
+        "on_update": null,
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null
+      },
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "inserted_at",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "name",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "blob_id",
+      "references": {
+        "name": "user_attachments_blob_id_fkey",
+        "table": "blobs",
+        "multitenancy": {
+          "global": null,
+          "strategy": null,
+          "attribute": null
+        },
+        "destination_attribute": "id",
+        "primary_key?": true,
+        "deferrable": false,
+        "match_tenant?": false,
+        "on_delete": null,
+        "on_update": null,
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null
+      },
+      "allow_nil?": false,
+      "primary_key?": false,
+      "generated?": false
+    }
+  ],
+  "table": "user_attachments",
+  "hash": "0F4C0AF705F4DBBEF2F3F8298DB5E5AD704A54069B7C56C0BFDFDAE12DFF8D90",
+  "multitenancy": {
+    "global": null,
+    "strategy": null,
+    "attribute": null
+  },
+  "identities": [
+    {
+      "name": "unique_user_attachment",
+      "keys": [
+        "user_id",
+        "name"
+      ],
+      "base_filter": null,
+      "index_name": "user_attachments_unique_user_attachment_index",
+      "nils_distinct?": true
+    }
+  ],
+  "repo": "Elixir.OpenTrack.Repo",
+  "strict?": false,
+  "custom_indexes": [],
+  "custom_statements": [],
+  "base_filter": null,
+  "has_create_action": true
+}

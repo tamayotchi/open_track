@@ -1,0 +1,227 @@
+<Layouts.app
+  flash={@flash}
+  current_scope={@current_scope}
+  app_shell={true}
+  active_tab={if @live_action == :add, do: :add, else: :home}
+>
+  <section class="member-intro">
+    <div>
+      <p class="eyebrow"><span class="status-square"></span> YOUR LITTLE DAILY PRACTICE</p>
+      <h1>A little <span class="highlight">everyday.</span></h1>
+      <p>Good meals. Small moments. All yours.</p>
+    </div>
+    <span class="member-sticker">
+      <.icon name="hero-sparkles" class="size-6" /> ONE BITE<br />AT A TIME
+    </span>
+  </section>
+
+  <NutritionComponents.targets_summary :if={@live_action == :index} settings={@settings} />
+  <section
+    :if={@live_action == :index}
+    class="nutrition-history"
+    aria-labelledby="nutrition-title"
+  >
+    <div class="section-heading">
+      <h2 id="nutrition-title">The bigger picture.</h2>
+      <.form for={%{}} id="chart-range" phx-change="range">
+        <.input
+          type="select"
+          name="days"
+          value={@days}
+          label="Date range"
+          options={[{"7 days", 7}, {"30 days", 30}, {"90 days", 90}]}
+        />
+      </.form>
+    </div>
+    <p class="section-description">
+      Your charts are ready. Measurements will appear once data tracking is connected.
+    </p>
+    <div class="nutrition-grid">
+      <NutritionComponents.chart
+        :for={metric <- NutritionChart.metrics()}
+        metric={metric}
+        entries={@entries}
+        days={@days}
+        today={@today}
+      />
+    </div>
+  </section>
+
+  <div :if={@live_action == :add} class="add-heading">
+    <h2>Add a food photo</h2>
+    <.link navigate={~p"/app"} class="back-link" aria-label="Close add food">
+      Close <.icon name="hero-x-mark" class="size-4" />
+    </.link>
+  </div>
+  <section
+    :if={@live_action == :add}
+    id="add-food-panel"
+    class="upload-panel app-upload-panel"
+    aria-label="Add a food photo"
+    phx-drop-target={@uploads.photo.ref}
+  >
+    <div class="upload-intro">
+      <span class="icon-tile"><.icon name="hero-camera" class="size-7" /></span>
+      <div>
+        <h2>What’s on your plate?</h2>
+        <p>Start with a little food moment.</p>
+      </div>
+    </div>
+    <.form
+      for={@form}
+      id="photo-form"
+      phx-change="validate-photo"
+      phx-submit="save-photo"
+      class="upload-form"
+    >
+      <div class="photo-picker">
+        <.live_file_input
+          upload={@uploads.photo}
+          class="photo-file-input"
+          aria-label="Choose a food photo"
+          aria-describedby="upload-help"
+        />
+        <span class="neo-button add-button" aria-hidden="true">
+          <.icon name="hero-plus" class="size-6" /> Choose photo
+        </span>
+      </div>
+      <p id="upload-help" class="upload-help">
+        JPG, PNG or WebP · Up to 8 MB · Private to your account
+      </p>
+      <div
+        :for={entry <- @uploads.photo.entries}
+        id={"preview-#{entry.ref}"}
+        class="upload-preview"
+      >
+        <.live_img_preview
+          entry={entry}
+          class="preview-image"
+          alt={"Preview of #{entry.client_name}"}
+        />
+        <div class="preview-details">
+          <h3>A little moment, ready.</h3>
+          <p class="file-name">{entry.client_name}</p>
+          <p class="field-help">
+            Ready to save to your private journal.
+          </p>
+          <p
+            :for={error <- upload_errors(@uploads.photo, entry)}
+            class="upload-error"
+            role="alert"
+          >
+            {upload_error(error)}
+          </p>
+          <div class="preview-actions">
+            <button
+              type="submit"
+              id="save-photo"
+              class="neo-button small-button"
+              phx-disable-with="Saving…"
+            >
+              Save photo
+            </button>
+            <button
+              type="button"
+              phx-click="cancel-upload"
+              phx-value-ref={entry.ref}
+              class="text-button"
+              id={"cancel-#{entry.ref}"}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      </div>
+      <p :for={error <- upload_errors(@uploads.photo)} class="upload-error" role="alert">
+        {upload_error(error)}
+      </p>
+    </.form>
+  </section>
+
+  <section class="journal-section" aria-labelledby="photos-title">
+    <div class="section-heading">
+      <div class="section-title">
+        <h2 id="photos-title">Your food journal</h2>
+        <span id="photo-count" class="count-badge">{@photo_count}</span>
+      </div>
+      <span class="sort-note">
+        <.icon name="hero-bars-arrow-down" class="size-4" /> Newest first
+      </span>
+    </div>
+    <div class="journal-toolbar">
+      <p>Everyday moments · Upload dates in UTC</p>
+      <div class="journal-view-switch" role="group" aria-label="Food journal view">
+        <button
+          type="button"
+          id="view-cards"
+          phx-click="set-view"
+          phx-value-mode="cards"
+          aria-pressed={to_string(@view_mode == :cards)}
+        >
+          <.icon name="hero-squares-2x2" class="size-4" /> Cards
+        </button>
+        <button
+          type="button"
+          id="view-table"
+          phx-click="set-view"
+          phx-value-mode="table"
+          aria-pressed={to_string(@view_mode == :table)}
+        >
+          <.icon name="hero-table-cells" class="size-4" /> Table
+        </button>
+      </div>
+    </div>
+    <div id="photos" phx-update="stream" class="photo-grid" hidden={@view_mode != :cards}>
+      <div id="empty-journal" class="empty-journal hidden only:flex">
+        <span class="empty-icon">
+          <.icon name="hero-photo" class="size-9" /><span class="little-plus">+</span>
+        </span>
+        <h3>Your first bite goes here.</h3>
+        <p>
+          Breakfast, a midnight snack, that really good sandwich.<br />Start with a photo. Make it yours.
+        </p>
+        <.link navigate={~p"/app/add"} class="empty-hint">
+          <.icon name="hero-plus" class="size-4" /> Add your first photo
+        </.link>
+      </div>
+      <FoodComponents.photo_card :for={{id, photo} <- @streams.photos} id={id} photo={photo} />
+    </div>
+    <div id="food-log-panel" class="food-log-panel" hidden={@view_mode != :table}>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="Food journal table">
+        <table class="food-log-table">
+          <caption class="sr-only">Your food journal. Upload dates in UTC.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Photo</th>
+              <th scope="col">Uploaded (UTC)</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody id="food-log-rows" phx-update="stream">
+            <tr id="empty-food-log" class="hidden only:table-row">
+              <td colspan="3">No food photos yet. Tap + to add your first photo.</td>
+            </tr>
+            <FoodComponents.food_log_row
+              :for={{id, photo} <- @streams.food_log}
+              id={id}
+              photo={photo}
+            />
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+  <button
+    :if={@more?}
+    type="button"
+    id="load-more"
+    phx-click="load-more"
+    class="neo-button"
+    phx-disable-with="Loading…"
+  >
+    Load more photos
+  </button>
+  <p class="member-footer">
+    <.icon name="hero-sparkles" class="size-4" /> A little daily practice. One bite at a time.
+  </p>
+</Layouts.app>

@@ -1,153 +1,103 @@
 defmodule OpenTrackWeb.Layouts do
-  @moduledoc """
-  This module holds layouts and related functionality
-  used by your application.
-  """
+  @moduledoc "The journal shell, navigation, and connection notices."
   use OpenTrackWeb, :html
 
-  # Embed all files in layouts/* within this module.
-  # The default root.html.heex file contains the HTML
-  # skeleton of your application, namely HTML headers
-  # and other static content.
   embed_templates "layouts/*"
 
-  @doc """
-  Renders your app layout.
-
-  This function is typically invoked from every template,
-  and it often contains your application menu, sidebar,
-  or similar.
-
-  ## Examples
-
-      <Layouts.app flash={@flash}>
-        <h1>Content</h1>
-      </Layouts.app>
-
-  """
-  attr :flash, :map, required: true, doc: "the map of flash messages"
-
-  attr :current_scope, :map,
-    default: nil,
-    doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
-
+  attr :flash, :map, required: true
+  attr :current_scope, :map, default: nil
+  attr :app_shell, :boolean, default: false
+  attr :active_tab, :atom, default: :home
   slot :inner_block, required: true
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
-        </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <header class={["site-header", @app_shell && "member-header"]}>
+      <div class="header-inner">
+        <.link href={~p"/"} class="brand" aria-label="Open Track home">
+          <span class="brand-icon"><.icon name="hero-sparkles-solid" class="size-6" /></span>
+          open<span class="brand-light">track</span><span class="brand-dot">.</span>
+        </.link>
+        <span :if={!@app_shell} class="header-label">THE EVERYDAY FOOD JOURNAL</span>
+        <%= if @app_shell || @current_scope do %>
+          <.link navigate={~p"/app"} class="journal-tab" id="header-journal">
+            <span class="status-square"></span> Your journal
+          </.link>
+        <% else %>
+          <nav class="header-auth" aria-label="Account navigation">
+            <.link navigate={~p"/users/log-in"} id="header-login" class="header-login">Log in</.link>
+            <.link navigate={~p"/users/register"} id="header-signup" class="journal-tab">
+              Sign up <.icon name="hero-arrow-up-right" class="size-4" />
+            </.link>
+          </nav>
+        <% end %>
       </div>
     </header>
-
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
-        {render_slot(@inner_block)}
-      </div>
+    <main id="main-content" class={["app-main", @app_shell && "member-main"]}>
+      {render_slot(@inner_block)}
     </main>
-
-    <.flash_group flash={@flash} />
+    <nav :if={@app_shell} id="bottom-nav" class="bottom-nav" aria-label="App navigation">
+      <div class="bottom-nav-inner">
+        <.link
+          navigate={~p"/app"}
+          id="nav-home"
+          class={["bottom-tab", @active_tab == :home && "active"]}
+          aria-current={@active_tab == :home && "page"}
+        >
+          <.icon name="hero-home" class="size-6" /><span>Journal</span>
+        </.link>
+        <.link
+          navigate={~p"/app/add"}
+          id="nav-add-food"
+          class="bottom-add"
+          aria-label="Add food"
+          aria-current={@active_tab == :add && "page"}
+        >
+          <span class="bottom-plus"><.icon name="hero-plus" class="size-8" /></span><span>Add food</span>
+        </.link>
+        <.link
+          navigate={~p"/app/account"}
+          id="nav-account"
+          class={["bottom-tab", @active_tab == :account && "active"]}
+          aria-current={@active_tab == :account && "page"}
+        >
+          <.icon name="hero-user-circle" class="size-6" /><span>Account</span>
+        </.link>
+      </div>
+    </nav>
+    <div class={@app_shell && "member-flashes"}><.flash_group flash={@flash} /></div>
     """
   end
 
-  @doc """
-  Shows the flash group with standard titles and content.
-
-  ## Examples
-
-      <.flash_group flash={@flash} />
-  """
-  attr :flash, :map, required: true, doc: "the map of flash messages"
-  attr :id, :string, default: "flash-group", doc: "the optional id of flash container"
+  attr :flash, :map, required: true
+  attr :id, :string, default: "flash-group"
 
   def flash_group(assigns) do
     ~H"""
     <div id={@id} aria-live="polite">
       <.flash kind={:info} flash={@flash} />
       <.flash kind={:error} flash={@flash} />
-
       <.flash
         id="client-error"
         kind={:error}
-        title="We can't find the internet"
+        title="Connection lost"
         phx-disconnected={show(".phx-client-error #client-error") |> JS.remove_attribute("hidden")}
         phx-connected={hide("#client-error") |> JS.set_attribute({"hidden", ""})}
         hidden
       >
-        Attempting to reconnect
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
+        Trying to reconnect. Please wait a moment.
       </.flash>
-
       <.flash
         id="server-error"
         kind={:error}
-        title="Something went wrong!"
+        title="Reconnecting"
         phx-disconnected={show(".phx-server-error #server-error") |> JS.remove_attribute("hidden")}
         phx-connected={hide("#server-error") |> JS.set_attribute({"hidden", ""})}
         hidden
       >
-        Attempting to reconnect
-        <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
+        Please wait before trying again.
       </.flash>
-    </div>
-    """
-  end
-
-  @doc """
-  Provides dark vs light theme toggle based on themes defined in app.css.
-
-  See <head> in root.html.heex which applies the theme before page load.
-  """
-  def theme_toggle(assigns) do
-    ~H"""
-    <div class="card relative flex flex-row items-center border-2 border-base-300 bg-base-300 rounded-full">
-      <div class="absolute w-1/3 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
-
-      <button
-        class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
-        data-phx-theme="system"
-      >
-        <.icon name="hero-computer-desktop-micro" class="size-4 opacity-75 hover:opacity-100" />
-      </button>
-
-      <button
-        class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
-        data-phx-theme="light"
-      >
-        <.icon name="hero-sun-micro" class="size-4 opacity-75 hover:opacity-100" />
-      </button>
-
-      <button
-        class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
-        data-phx-theme="dark"
-      >
-        <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
-      </button>
     </div>
     """
   end

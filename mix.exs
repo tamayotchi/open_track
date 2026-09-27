@@ -63,6 +63,8 @@ defmodule OpenTrack.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:ash_phoenix, "~> 2.3"},
+      {:ash_sqlite, "~> 0.2.19"},
       {:bcrypt_elixir, "~> 3.0"},
       {:picosat_elixir, "~> 0.2"},
       {:ash_authentication, "== 4.15.0"},
@@ -109,10 +111,17 @@ defmodule OpenTrack.MixProject do
   defp aliases do
     [
       # `mix setup` also regenerates the agent skills in .pi/skills
-      setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build", "usage_rules.sync"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      setup: [
+        "deps.get",
+        "ash.setup",
+        "run priv/repo/seeds.exs",
+        "assets.setup",
+        "assets.build",
+        "usage_rules.sync"
+      ],
+      "ecto.setup": ["ash.setup", "run priv/repo/seeds.exs"],
+      "ecto.reset": ["ash.reset"],
+      test: ["ash_sqlite.create --quiet", "ash_sqlite.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind open_track", "esbuild open_track"],
       "assets.deploy": [
@@ -120,7 +129,13 @@ defmodule OpenTrack.MixProject do
         "esbuild open_track --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "ash.codegen --check",
+        "test"
+      ]
     ]
   end
 end

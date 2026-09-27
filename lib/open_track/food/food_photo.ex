@@ -3,43 +3,40 @@ defmodule OpenTrack.Food.FoodPhoto do
   A user's food photo, its attached image, and optional food analysis.
 
   The `image` relationship points to a Storage.FoodPhotoAttachment, whose `blob`
-  contains the object key and file metadata. R2 stores the image bytes.
-
-  No persistence data layer is configured yet. When adding one, configure the
-  `food_photos` table, a restrictive user foreign key, and an index on
-  `[:user_id, :inserted_at, :id]`, plus persistence for Blob and FoodPhotoAttachment.
+  contains the object key and file metadata. AshSqlite persists metadata;
+  the configured AshStorage service persists the image bytes.
   """
 
   use Ash.Resource,
     otp_app: :open_track,
     domain: OpenTrack.Food,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshStorage]
+    extensions: [AshStorage],
+    data_layer: AshSqlite.DataLayer
 
   storage do
-    # These connection settings are read when this resource is compiled.
-    # Leave the service unset when R2 is not configured locally.
-    if System.get_env("R2_ACCOUNT_ID") do
-      service {AshStorage.Service.S3,
-               bucket: "open-track",
-               prefix: "food/",
-               endpoint_url:
-                 "https://#{System.fetch_env!("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com",
-               region: "auto",
-               access_key_id_env: "R2_ACCESS_KEY_ID",
-               secret_access_key_env: "R2_SECRET_ACCESS_KEY",
-               presigned: true,
-               expires_in: 300}
-    end
-
     blob_resource OpenTrack.Storage.Blob
     attachment_resource OpenTrack.Storage.FoodPhotoAttachment
 
     has_one_attached :image, dependent: :purge
   end
 
+  sqlite do
+    table "food_photos"
+    repo OpenTrack.Repo
+
+    custom_indexes do
+      index [:user_id, :inserted_at]
+    end
+  end
+
   actions do
     defaults [:read, :destroy]
+
+    read :journal do
+      prepare build(sort: [inserted_at: :desc])
+      pagination keyset?: true
+    end
 
     create :create do
       primary? true
@@ -47,6 +44,7 @@ defmodule OpenTrack.Food.FoodPhoto do
       argument :uploaded_file, :file, allow_nil?: false
 
       change relate_actor(:user)
+
       change {AshStorage.Changes.AttachFile, argument: :uploaded_file, attachment: :image}
     end
   end

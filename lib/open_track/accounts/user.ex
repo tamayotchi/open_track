@@ -3,15 +3,10 @@ defmodule OpenTrack.Accounts.User do
     otp_app: :open_track,
     domain: OpenTrack.Accounts,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAuthentication, AshStorage]
+    extensions: [AshAuthentication, AshStorage],
+    data_layer: AshSqlite.DataLayer
 
   authentication do
-    add_ons do
-      log_out_everywhere do
-        apply_on_password_change? true
-      end
-    end
-
     tokens do
       enabled? true
       token_resource OpenTrack.Accounts.Token
@@ -24,6 +19,7 @@ defmodule OpenTrack.Accounts.User do
       password :password do
         identity_field :email
         hash_provider AshAuthentication.BcryptProvider
+        sign_in_tokens_enabled? false
       end
 
       remember_me :remember_me
@@ -31,24 +27,15 @@ defmodule OpenTrack.Accounts.User do
   end
 
   storage do
-    # Like FoodPhoto, configure R2 at compile time and resolve credentials at runtime.
-    if System.get_env("R2_ACCOUNT_ID") do
-      service {AshStorage.Service.S3,
-               bucket: "open-track",
-               prefix: "avatars/",
-               endpoint_url:
-                 "https://#{System.fetch_env!("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com",
-               region: "auto",
-               access_key_id_env: "R2_ACCESS_KEY_ID",
-               secret_access_key_env: "R2_SECRET_ACCESS_KEY",
-               presigned: true,
-               expires_in: 300}
-    end
-
     blob_resource OpenTrack.Storage.Blob
     attachment_resource OpenTrack.Storage.UserAttachment
 
     has_one_attached :avatar, dependent: :purge
+  end
+
+  sqlite do
+    table "users"
+    repo OpenTrack.Repo
   end
 
   actions do
@@ -116,33 +103,6 @@ defmodule OpenTrack.Accounts.User do
       end
     end
 
-    read :sign_in_with_token do
-      # In the generated sign in components, we validate the
-      # email and password directly in the LiveView
-      # and generate a short-lived token that can be used to sign in over
-      # a standard controller action, exchanging it for a standard token.
-      # This action performs that exchange. If you do not use the generated
-      # liveviews, you may remove this action, and set
-      # `sign_in_tokens_enabled? false` in the password strategy.
-
-      description "Attempt to sign in using a short-lived sign in token."
-      get? true
-
-      argument :token, :string do
-        description "The short-lived sign in token."
-        allow_nil? false
-        sensitive? true
-      end
-
-      # validates the provided sign in token and generates a token
-      prepare AshAuthentication.Strategy.Password.SignInWithTokenPreparation
-
-      metadata :token, :string do
-        description "A JWT that can be used to authenticate the user."
-        allow_nil? false
-      end
-    end
-
     create :register_with_password do
       description "Register a new user with a email and password."
 
@@ -192,7 +152,14 @@ defmodule OpenTrack.Accounts.User do
       authorize_if always()
     end
 
-    policy action([:read, :update_avatar, :attach_avatar, :detach_avatar, :purge_avatar]) do
+    policy action([
+             :read,
+             :change_password,
+             :update_avatar,
+             :attach_avatar,
+             :detach_avatar,
+             :purge_avatar
+           ]) do
       authorize_if expr(id == ^actor(:id))
     end
   end

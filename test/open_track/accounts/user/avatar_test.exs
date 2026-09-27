@@ -1,195 +1,92 @@
 defmodule OpenTrack.Accounts.User.AvatarTest do
-  use ExUnit.Case, async: true
+  use OpenTrack.DataCase
 
   import Ash.Test
+  import OpenTrack.Fixtures
 
   alias OpenTrack.Accounts
-  alias OpenTrack.Accounts.User
-  alias OpenTrack.Food.FoodPhoto
   alias OpenTrack.Storage.{Blob, UserAttachment}
 
-  setup do
-    owner = %User{id: Ash.UUID.generate()}
-    other_user = %User{id: Ash.UUID.generate()}
+  test "avatars persist across reloads and replacement and removal purge old files" do
+    owner = user()
+    assert is_nil(Accounts.get_user_by_id!(owner.id, actor: owner, load: :avatar).avatar)
 
-    %{
-      owner: owner,
-      other_user: other_user,
-      uploaded_avatar: Ash.Type.File.from_path("/tmp/avatar.jpg"),
-      query: Ash.DataLayer.Simple.set_data(User, [owner, other_user])
-    }
+    Accounts.update_user_avatar!(owner, upload(), actor: owner)
+    loaded = Accounts.get_user_by_id!(owner.id, actor: owner, load: [avatar: :blob])
+    assert loaded.avatar.blob.filename == "food.png"
+    assert AshStorage.Operations.download(loaded.avatar.blob) == {:ok, image_bytes()}
+
+    Accounts.update_user_avatar!(owner, upload(), actor: owner)
+    replacement = Accounts.get_user_by_id!(owner.id, actor: owner, load: [avatar: :blob])
+    refute replacement.avatar.blob.id == loaded.avatar.blob.id
+    assert AshStorage.Operations.download(replacement.avatar.blob) == {:ok, image_bytes()}
+    assert_purged(loaded.avatar)
+
+    Accounts.remove_user_avatar!(owner, actor: owner)
+    assert is_nil(Accounts.get_user_by_id!(owner.id, actor: owner, load: :avatar).avatar)
+    assert_purged(replacement.avatar)
   end
 
-  test "shares blob metadata with food photos but uses a separate attachment resource" do
-    assert AshStorage.Info.storage_blob_resource!(User) == Blob
-    assert AshStorage.Info.storage_blob_resource!(FoodPhoto) == Blob
-    assert AshStorage.Info.storage_attachment_resource!(User) == UserAttachment
-    refute AshStorage.Info.storage_attachment_resource!(FoodPhoto) == UserAttachment
+  test "avatar updates and removals cannot bypass ownership" do
+    owner = user()
+    file = upload()
+    Accounts.update_user_avatar!(owner, file, actor: owner)
+    original = Accounts.get_user_by_id!(owner.id, actor: owner, load: [avatar: :blob])
 
-    assert {:ok, %{type: :one, dependent: :purge}} = AshStorage.Info.attachment(User, :avatar)
-    avatar = Ash.Resource.Info.relationship(User, :avatar)
-    assert avatar.type == :has_one
-    assert avatar.destination == UserAttachment
-    assert avatar.destination_attribute == :user_id
-    assert Ash.Resource.Info.calculation(User, :avatar_url)
+    for actor <- [user(), nil] do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Accounts.update_user_avatar(owner, file, actor: actor)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Accounts.remove_user_avatar(owner, actor: actor)
+    end
+
+    loaded = Accounts.get_user_by_id!(owner.id, actor: owner, load: [avatar: :blob])
+    assert loaded.avatar.id == original.avatar.id
+    assert AshStorage.Operations.download(loaded.avatar.blob) == {:ok, image_bytes()}
   end
 
-  test "avatar uploads use in-memory test storage, never R2" do
-    {:ok, avatar} = AshStorage.Info.attachment(User, :avatar)
-    assert is_nil(avatar.service)
+  test "avatar uploads require a file and cannot change account fields" do
+    owner = user()
 
-    assert AshStorage.Info.service_for_attachment(User, avatar) ==
-             {:ok, {AshStorage.Service.Test, []}}
+    for {file, error_type} <- [
+          {nil, Ash.Error.Changes.Required},
+          {123, Ash.Error.Changes.InvalidArgument}
+        ] do
+      assert_has_error(
+        Accounts.update_user_avatar(owner, file, actor: owner),
+        Ash.Error.Invalid,
+        fn error ->
+          error.__struct__ == error_type and error.field == :uploaded_avatar
+        end
+      )
+    end
+
+    assert_has_error(
+      Accounts.update_user_avatar(owner, upload(), %{email: "new@example.com"}, actor: owner),
+      Ash.Error.Invalid,
+      &match?(%Ash.Error.Invalid.NoSuchInput{input: :email}, &1)
+    )
   end
 
-  test "wires the file argument to the avatar attachment without accepting user attributes" do
-    action = Ash.Resource.Info.action(User, :update_avatar)
-    assert action.accept == []
-    argument = Enum.find(action.arguments, &(&1.name == :uploaded_avatar))
-    assert argument.type == Ash.Type.File
-    refute argument.allow_nil?
+  test "generated attachment actions cannot bypass avatar ownership" do
+    owner = %Accounts.User{id: Ash.UUID.generate()}
+    other = %Accounts.User{id: Ash.UUID.generate()}
 
-    assert Enum.any?(action.changes, fn change ->
-             change.change ==
-               {AshStorage.Changes.AttachFile, argument: :uploaded_avatar, attachment: :avatar}
-           end)
-  end
-
-  describe "domain avatar actions" do
-    test "allows the owner to upload and remove their avatar", %{
-      owner: owner,
-      uploaded_avatar: file
-    } do
-      assert Accounts.can_update_user_avatar?(owner, owner, file, run_queries?: false)
-      assert Accounts.can_remove_user_avatar?(owner, owner, run_queries?: false)
-    end
-
-    test "requires an uploaded avatar", %{owner: owner} do
-      result = Accounts.update_user_avatar(owner, nil, actor: owner)
-
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Changes.Required{field: :uploaded_avatar}, error)
-      end)
-    end
-
-    test "rejects invalid file input", %{owner: owner} do
-      result = Accounts.update_user_avatar(owner, 123, actor: owner)
-
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Changes.InvalidArgument{field: :uploaded_avatar}, error)
-      end)
-    end
-
-    test "does not allow changing account fields through avatar upload", %{
-      owner: owner,
-      uploaded_avatar: file
-    } do
-      result =
-        Accounts.update_user_avatar(owner, file, %{email: "changed@example.com"}, actor: owner)
-
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Invalid.NoSuchInput{input: :email}, error)
-      end)
-    end
-
-    test "rejects uploads and removals by another user or an anonymous caller", %{
-      owner: owner,
-      other_user: other_user,
-      uploaded_avatar: file
-    } do
-      for actor <- [other_user, nil] do
-        refute Accounts.can_update_user_avatar?(actor, owner, file, run_queries?: false)
-        refute Accounts.can_remove_user_avatar?(actor, owner, run_queries?: false)
-
-        # Update authorization may re-read the user to apply its ownership filter.
-        opts = [actor: actor, context: %{data_layer: %{data: %{User => [owner]}}}]
-
-        assert {:error, %Ash.Error.Forbidden{}} =
-                 Accounts.update_user_avatar(owner, file, opts)
-
-        assert {:error, %Ash.Error.Forbidden{}} =
-                 Accounts.remove_user_avatar(owner, opts)
-      end
-    end
-  end
-
-  test "generated attachment actions cannot bypass ownership", %{
-    owner: owner,
-    other_user: other_user
-  } do
     for {action, params} <- [
           attach_avatar: %{io: "avatar bytes", filename: "avatar.jpg"},
           detach_avatar: %{},
           purge_avatar: %{}
         ] do
       assert Ash.can?({owner, action, params}, owner, run_queries?: false)
-      refute Ash.can?({owner, action, params}, other_user, run_queries?: false)
+      refute Ash.can?({owner, action, params}, other, run_queries?: false)
       refute Ash.can?({owner, action, params}, nil, run_queries?: false)
     end
   end
 
-  describe "reading the user that owns the avatar" do
-    test "allows the owner to fetch their own user", %{owner: owner, query: query} do
-      assert Accounts.get_user_by_id!(owner.id, actor: owner, query: query).id == owner.id
-    end
-
-    test "loads the owner's avatar metadata and URL through the domain", %{owner: owner} do
-      blob = %Blob{id: Ash.UUID.generate(), key: "avatar-key", filename: "avatar.jpg"}
-
-      attachment = %UserAttachment{
-        id: Ash.UUID.generate(),
-        user_id: owner.id,
-        blob_id: blob.id,
-        name: "avatar"
-      }
-
-      # Supply the related records too: this exercises relationship loading,
-      # not database persistence or a real upload.
-      context = %{
-        shared: %{
-          data_layer: %{data: %{User => [owner], UserAttachment => [attachment], Blob => [blob]}}
-        }
-      }
-
-      user =
-        Accounts.get_user_by_id!(owner.id,
-          actor: owner,
-          context: context,
-          load: [:avatar_url, avatar: :blob]
-        )
-
-      assert user.avatar.id == attachment.id
-      assert user.avatar.blob.id == blob.id
-      assert user.avatar.blob.filename == "avatar.jpg"
-      assert user.avatar_url == "http://test.local/storage/avatar-key"
-    end
-
-    test "a user can have no avatar", %{owner: owner} do
-      user =
-        Accounts.get_user_by_id!(owner.id,
-          actor: owner,
-          context: %{
-            shared: %{data_layer: %{data: %{User => [owner], UserAttachment => [], Blob => []}}}
-          },
-          load: [:avatar_url, avatar: :blob]
-        )
-
-      assert is_nil(user.avatar)
-      assert is_nil(user.avatar_url)
-    end
-
-    test "does not expose another user's record", %{
-      owner: owner,
-      other_user: other_user,
-      query: query
-    } do
-      for actor <- [other_user, nil] do
-        result = Accounts.get_user_by_id(owner.id, actor: actor, query: query)
-
-        assert_has_error(result, Ash.Error.Invalid, fn error ->
-          match?(%Ash.Error.Query.NotFound{}, error)
-        end)
-      end
-    end
+  defp assert_purged(attachment) do
+    # Internal storage resources have no application code interfaces.
+    assert is_nil(Ash.get!(UserAttachment, attachment.id, not_found_error?: false))
+    assert is_nil(Ash.get!(Blob, attachment.blob.id, not_found_error?: false))
+    assert {:error, :not_found} = AshStorage.Operations.download(attachment.blob)
   end
 end

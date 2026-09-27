@@ -1,95 +1,191 @@
 defmodule OpenTrack.FoodTest do
-  use ExUnit.Case, async: true
+  use OpenTrack.DataCase
 
   import Ash.Test
+  import OpenTrack.Fixtures
 
-  alias OpenTrack.Accounts.User
   alias OpenTrack.Food
-  alias OpenTrack.Food.FoodPhoto
+  alias OpenTrack.Storage.{Blob, FoodPhotoAttachment}
 
-  setup do
-    owner = %User{id: Ash.UUID.generate()}
-    other_user = %User{id: Ash.UUID.generate()}
-    photo = %FoodPhoto{id: Ash.UUID.generate(), user_id: owner.id}
-    another_photo = %FoodPhoto{id: Ash.UUID.generate(), user_id: owner.id}
-    other_users_photo = %FoodPhoto{id: Ash.UUID.generate(), user_id: other_user.id}
+  test "uploads persist ownership, analysis defaults, metadata, and bytes" do
+    owner = user()
+    photo = Food.create_food_photo!(upload(), actor: owner)
+    loaded = Food.get_food_photo!(photo.id, actor: owner, load: [image: :blob])
 
-    # No persistence data layer is configured; supply records for read tests.
-    query = Ash.DataLayer.Simple.set_data(FoodPhoto, [another_photo, other_users_photo, photo])
-
-    %{owner: owner, other_user: other_user, photo: photo, query: query}
+    assert loaded.user_id == owner.id
+    assert loaded.analysis_status == :not_analyzed
+    assert is_nil(loaded.analysis)
+    assert loaded.image.blob.filename == "food.png"
+    assert loaded.image.blob.content_type == "image/png"
+    assert loaded.image.blob.byte_size == byte_size(image_bytes())
+    assert AshStorage.Operations.download(loaded.image.blob) == {:ok, image_bytes()}
   end
 
-  describe "create_food_photo" do
-    test "requires the uploaded_file argument", %{owner: owner} do
-      result = Food.create_food_photo(nil, actor: owner)
+  test "deleting by ID enforces ownership and purges attachment metadata and bytes" do
+    owner = user()
+    photo = Food.create_food_photo!(upload(), actor: owner)
+    loaded = Food.get_food_photo!(photo.id, actor: owner, load: [image: :blob])
 
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Changes.Required{field: :uploaded_file}, error)
-      end)
+    for actor <- [user(), nil] do
+      assert_has_error(
+        Food.delete_food_photo(photo.id, actor: actor),
+        Ash.Error.Invalid,
+        fn error ->
+          match?(%Ash.Error.Query.NotFound{}, error)
+        end
+      )
+
+      assert Food.get_food_photo!(photo.id, actor: owner).id == photo.id
+      assert AshStorage.Operations.download(loaded.image.blob) == {:ok, image_bytes()}
     end
 
-    test "rejects an invalid file input", %{owner: owner} do
-      result = Food.create_food_photo(123, actor: owner)
+    assert :ok = Food.delete_food_photo(photo.id, actor: owner)
 
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Changes.InvalidArgument{field: :uploaded_file}, error)
-      end)
-    end
+    assert_has_error(Food.get_food_photo(photo.id, actor: owner), Ash.Error.Invalid, fn error ->
+      match?(%Ash.Error.Query.NotFound{}, error)
+    end)
 
-    test "requires an actor" do
-      file = Ash.Type.File.from_path("/tmp/lunch.jpg")
-      result = Food.create_food_photo(file)
+    # Internal storage resources have no application code interfaces.
+    assert is_nil(Ash.get!(FoodPhotoAttachment, loaded.image.id, not_found_error?: false))
+    assert is_nil(Ash.get!(Blob, loaded.image.blob.id, not_found_error?: false))
+    assert {:error, :not_found} = AshStorage.Operations.download(loaded.image.blob)
 
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Changes.InvalidRelationship{relationship: :user}, error)
-      end)
-    end
+    assert_has_error(
+      Food.delete_food_photo(photo.id, actor: owner),
+      Ash.Error.Invalid,
+      fn error ->
+        match?(%Ash.Error.Query.NotFound{}, error)
+      end
+    )
+  end
 
-    test "does not accept caller-supplied ownership", %{owner: owner, other_user: other_user} do
-      file = Ash.Type.File.from_path("/tmp/lunch.jpg")
-      result = Food.create_food_photo(file, %{user_id: other_user.id}, actor: owner)
+  test "journal pages are newest first, owner-scoped, and honor the requested limit" do
+    owner = user()
+    file = upload()
 
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Invalid.NoSuchInput{input: :user_id}, error)
-      end)
+    photos =
+      for day <- 1..3 do
+        Food.create_food_photo!(file, actor: owner)
+        |> Ash.Seed.update!(%{inserted_at: DateTime.add(~U[2026-01-01 12:00:00Z], day, :day)})
+      end
+
+    Food.create_food_photo!(file, actor: user())
+    expected_ids = photos |> Enum.reverse() |> Enum.map(& &1.id)
+    first_page = Food.list_food_photos!(actor: owner, page: [limit: 2, count: true])
+
+    assert Enum.map(first_page.results, & &1.id) == Enum.take(expected_ids, 2)
+    assert first_page.count == 3
+    assert first_page.more?
+
+    last_page =
+      Food.list_food_photos!(
+        actor: owner,
+        page: [limit: 2, after: List.last(first_page.results).__metadata__.keyset]
+      )
+
+    assert Enum.map(last_page.results, & &1.id) == Enum.drop(expected_ids, 2)
+    assert is_nil(last_page.count)
+    refute last_page.more?
+  end
+
+  test "journal pagination does not skip or repeat photos with identical timestamps" do
+    owner = user()
+    file = upload()
+
+    # Seed read-only timestamps so the tie is deterministic.
+    photos =
+      for _ <- 1..2 do
+        Food.create_food_photo!(file, actor: owner)
+        |> Ash.Seed.update!(%{inserted_at: ~U[2026-01-01 12:00:00.000000Z]})
+      end
+
+    first_page = Food.list_food_photos!(actor: owner, page: [limit: 1])
+    assert [first] = first_page.results
+    assert first_page.more?
+
+    second_page =
+      Food.list_food_photos!(actor: owner, page: [limit: 1, after: first.__metadata__.keyset])
+
+    assert [second] = second_page.results
+    refute second_page.more?
+    assert Enum.sort([first.id, second.id]) == Enum.sort(Enum.map(photos, & &1.id))
+  end
+
+  test "photo reads and image URLs are private" do
+    owner = user()
+    photo = Food.create_food_photo!(upload(), actor: owner)
+
+    for actor <- [user(), nil] do
+      assert_has_error(
+        Food.get_food_photo(photo.id, actor: actor, load: :image_url),
+        Ash.Error.Invalid,
+        &match?(%Ash.Error.Query.NotFound{}, &1)
+      )
+
+      assert Food.list_food_photos!(actor: actor, page: [limit: 24]).results == []
     end
   end
 
-  describe "get_food_photo" do
-    test "finds the owner's photo by ID", %{owner: owner, photo: photo, query: query} do
-      result = Food.get_food_photo!(photo.id, actor: owner, query: query)
+  test "creation requires an actor and a valid file, and rejects supplied ownership" do
+    owner = user()
+    file = upload()
 
-      assert result.id == photo.id
-      assert result.user_id == owner.id
-    end
+    assert_has_error(Food.create_food_photo(file), Ash.Error.Invalid, fn error ->
+      match?(%Ash.Error.Changes.InvalidRelationship{relationship: :user}, error)
+    end)
 
-    test "returns not found for an unknown ID", %{owner: owner, query: query} do
-      result = Food.get_food_photo(Ash.UUID.generate(), actor: owner, query: query)
+    assert_has_error(
+      Food.create_food_photo(file, %{user_id: owner.id}, actor: owner),
+      Ash.Error.Invalid,
+      &match?(%Ash.Error.Invalid.NoSuchInput{input: :user_id}, &1)
+    )
 
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Query.NotFound{}, error)
+    for {file, error_type} <- [
+          {nil, Ash.Error.Changes.Required},
+          {123, Ash.Error.Changes.InvalidArgument}
+        ] do
+      assert_has_error(Food.create_food_photo(file, actor: owner), Ash.Error.Invalid, fn error ->
+        error.__struct__ == error_type and error.field == :uploaded_file
       end)
     end
 
-    test "does not expose another user's photo", %{
-      other_user: other_user,
-      photo: photo,
-      query: query
-    } do
-      result = Food.get_food_photo(photo.id, actor: other_user, query: query)
+    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+  end
 
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Query.NotFound{}, error)
-      end)
+  test "missing files raise from storage and roll back the photo" do
+    owner = user()
+    file = upload()
+    File.rm!(file.path)
+
+    assert_raise Ash.Error.Unknown, ~r/enoent/, fn ->
+      Food.create_food_photo(file, actor: owner)
     end
 
-    test "does not expose photos without an actor", %{photo: photo, query: query} do
-      result = Food.get_food_photo(photo.id, query: query)
+    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert AshStorage.Service.Test.list_keys() == []
+  end
 
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Query.NotFound{}, error)
-      end)
+  test "storage failure rolls back the photo and preserves an existing avatar" do
+    owner = user()
+    OpenTrack.Accounts.update_user_avatar!(owner, upload(), actor: owner)
+    original = OpenTrack.Accounts.get_user_by_id!(owner.id, actor: owner, load: [avatar: :blob])
+    keys = AshStorage.Service.Test.list_keys() |> Enum.sort()
+
+    for resource <- [OpenTrack.Food.FoodPhoto, OpenTrack.Accounts.User] do
+      previous = Application.fetch_env!(:open_track, resource)
+      on_exit(fn -> Application.put_env(:open_track, resource, previous) end)
+
+      Application.put_env(:open_track, resource,
+        storage: [service: {OpenTrack.UnavailableStorage, []}]
+      )
     end
+
+    assert {:error, _} = Food.create_food_photo(upload(), actor: owner)
+    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert {:error, _} = OpenTrack.Accounts.update_user_avatar(owner, upload(), actor: owner)
+    loaded = OpenTrack.Accounts.get_user_by_id!(owner.id, actor: owner, load: [avatar: :blob])
+    assert loaded.avatar.id == original.avatar.id
+    assert AshStorage.Operations.download(loaded.avatar.blob) == {:ok, image_bytes()}
+    assert Enum.sort(AshStorage.Service.Test.list_keys()) == keys
   end
 end

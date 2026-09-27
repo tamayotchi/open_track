@@ -3,8 +3,8 @@ defmodule OpenTrack.Storage.Blob do
   Metadata for a stored file, not the file's bytes.
 
   AshStorage adds `key`, `filename`, `content_type`, `byte_size`, `checksum`,
-  and storage service details. The bytes live in R2. No persistence data layer
-  is configured yet. Shared by food photos and user avatars. Access this internal
+  and storage service details. SQLite persists metadata; the configured disk or
+  S3-compatible service stores bytes. Shared by food photos and user avatars. Access this internal
   resource through the owning Food or Accounts domain's actions; it is not
   intended to be exposed directly as an API.
   """
@@ -12,7 +12,13 @@ defmodule OpenTrack.Storage.Blob do
   use Ash.Resource,
     otp_app: :open_track,
     domain: OpenTrack.Storage,
-    extensions: [AshStorage.BlobResource]
+    extensions: [AshStorage.BlobResource],
+    data_layer: AshSqlite.DataLayer
+
+  sqlite do
+    table "blobs"
+    repo OpenTrack.Repo
+  end
 
   attributes do
     uuid_primary_key :id

@@ -1,0 +1,79 @@
+<Layouts.app flash={@flash} current_scope={@current_scope}>
+  <section class="auth-page">
+    <div class="auth-heading">
+      <p class="eyebrow">
+        {if @mode == :register, do: "MAKE YOURSELF AT HOME", else: "GOOD TO SEE YOU"}
+      </p>
+      <h1 :if={@mode == :login}>
+        Back for<br />another <span class="highlight">bite.</span>
+      </h1>
+      <h1 :if={@mode == :register}>
+        A fresh<br /><span class="highlight">little start.</span>
+      </h1>
+      <p>Your own space for your everyday food moments.</p>
+    </div>
+    <div class="auth-card">
+      <nav class="auth-tabs" aria-label="Sign in or create an account">
+        <.link
+          href={~p"/users/register"}
+          id="signup-link"
+          aria-current={@mode == :register && "page"}
+        >
+          Sign up
+        </.link>
+        <.link
+          href={~p"/users/log-in"}
+          id="login-link"
+          aria-current={@mode == :login && "page"}
+        >
+          Log in
+        </.link>
+      </nav>
+      <h2>
+        {if @mode == :register, do: "Welcome to your corner.", else: "Welcome back."}
+      </h2>
+      <p class="auth-subtitle">A little moment for your everyday.</p>
+      <.form
+        for={@form}
+        id="auth-form"
+        action={if @mode == :register, do: ~p"/users/register", else: ~p"/users/log-in"}
+        method="post"
+        class="auth-form"
+      >
+        <.input
+          field={@form[:email]}
+          type="email"
+          label="Email"
+          autocomplete="email"
+          required
+          maxlength="160"
+          placeholder="you@example.com"
+        />
+        <.input
+          field={@form[:password]}
+          type="password"
+          label="Password"
+          value={nil}
+          required
+          autocomplete={if @mode == :register, do: "new-password", else: "current-password"}
+        />
+        <p :if={@mode == :register} class="field-help">
+          At least 8 characters.
+        </p>
+        <.input
+          :if={@mode == :register}
+          field={@form[:password_confirmation]}
+          type="password"
+          label="Confirm password"
+          value={nil}
+          autocomplete="new-password"
+          required
+        />
+        <button id="auth-submit" type="submit" class="neo-button auth-submit">
+          {if @mode == :register, do: "Create account", else: "Log in"}
+          <.icon name="hero-arrow-right" class="size-5" />
+        </button>
+      </.form>
+    </div>
+  </section>
+</Layouts.app>

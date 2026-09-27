@@ -1,8 +1,17 @@
 defmodule OpenTrackWeb.PageControllerTest do
   use OpenTrackWeb.ConnCase
 
-  test "GET /", %{conn: conn} do
-    conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Peace of mind from prototype to production"
+  test "the welcome page offers the journal and account registration", %{conn: conn} do
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+
+    assert [_] = document |> LazyHTML.query("#journal-title") |> LazyHTML.to_tree()
+
+    assert [_] =
+             document |> LazyHTML.query("#landing-journal[href='/app']") |> LazyHTML.to_tree()
+
+    assert [_] =
+             document
+             |> LazyHTML.query("#header-signup[href='/users/register']")
+             |> LazyHTML.to_tree()
   end
 end

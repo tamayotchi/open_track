@@ -1,167 +1,204 @@
 # OpenTrack
 
-To start your Phoenix server:
+A private food journal built with Phoenix LiveView, Ash, AshAuthentication,
+AshPhoenix, AshSqlite, and AshStorage.
 
-* Run `mix setup` to install and setup dependencies
-* Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
+## Run locally
 
-Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
-
-Ready to run in production? Please [check our deployment guides](https://hexdocs.pm/phoenix/deployment.html).
-
-## File storage (AshStorage + Cloudflare R2)
-
-The resource declarations are wired together as follows:
-
-```text
-OpenTrack.Food.FoodPhoto                   owner and food-analysis results
-  └── image: Storage.FoodPhotoAttachment  food_photo_id + blob_id, name: "image"
-        └── blob: Storage.Blob           key, filename, content_type, size, checksum
-              └── R2 object              the actual image bytes
-
-OpenTrack.Accounts.User               avatar owner
-  └── avatar: Storage.UserAttachment  user_id + blob_id, name: "avatar"
-        └── blob: Storage.Blob        the same Blob resource, a different record
-              └── R2 object           the actual avatar bytes
-```
-
-Start with these files:
-
-- `lib/open_track/food/food_photo.ex`: `has_one_attached :image` and the create action.
-- `lib/open_track/storage/food_photo_attachment.ex`: explicit relationships to FoodPhoto and Blob.
-- `lib/open_track/storage/blob.ex`: shared AshStorage-generated file metadata; key uniqueness lives here.
-- `lib/open_track/accounts/user.ex`: `has_one_attached :avatar` and the update action.
-- `lib/open_track/storage/user_attachment.ex`: explicit relationships to User and Blob.
-
-Separate attachment resources keep each owner foreign key required: food attachments
-must have `food_photo_id`, and avatar attachments must have `user_id`. Both use the
-same Blob resource, but ordinary uploads create separate blob records and files.
-
-**There is no persistence data layer on these resources yet.** No `ash_sqlite`,
-other database adapter, or migrations were added. R2 stores files, not the Ash
-records: add persistence for User, FoodPhoto, Blob, FoodPhotoAttachment, and UserAttachment
-before using real uploads. Configure their foreign keys and unique identities too.
-Otherwise uploads can leave objects in R2 without durable metadata.
-The tests check resource declarations, input validation, owner policies, and avatar
-relationship/URL loading using supplied in-memory records; they do not perform
-an end-to-end upload, replacement, or purge.
-
-### R2 configuration
-
-AshStorage is pinned to a Git revision because it is not yet released on Hex.
-It requires Elixir 1.17+. Its S3 service uses the included `req_s3` dependency.
-
-The per-resource `service` declarations in `FoodPhoto` and `User`'s `storage do`
-blocks configure R2 for their attachments. There is no R2 configuration in
-`config/runtime.exs`. The bucket name is fixed as `"open-track"`; create that
-private bucket in your Cloudflare account before uploading. The S3 service uses
-`prefix: "food/"` for food photos and `prefix: "avatars/"` for user avatars.
-Objects live under `food/<generated-key>` or `avatars/<generated-key>` inside the
-same bucket. No folder needs to be created manually; the prefix is part of the object key.
-
-Set `R2_ACCOUNT_ID` **before compiling**. Credentials are read later by the S3
-adapter, so they must be available when performing storage operations:
+Configure [Cloudflare R2](#cloudflare-r2) first; it is required in development
+and production. Then run:
 
 ```sh
-export R2_ACCOUNT_ID="your-cloudflare-account-id"
-export R2_ACCESS_KEY_ID="your-r2-access-key-id"
-export R2_SECRET_ACCESS_KEY="your-r2-secret-access-key"
+mix setup
+mix phx.server
 ```
 
-Keep the bucket private. Image URLs are signed GET URLs, valid for five minutes;
-they are calculated when loaded, not stored in the database. Only credential
-**environment-variable names**, never the secrets, are persisted in blob options.
-If `R2_ACCOUNT_ID` is absent during compilation, no real storage service is
-configured. After setting or changing it, recompile with `mix compile --force`
-(and rebuild your release when deploying). Changing it only at application
-startup does not update the compiled DSL settings. No bucket environment variable
-is required.
+Visit http://localhost:4000 and create an account. Existing checkouts can run
+`mix deps.get && mix ash.migrate` before starting the server.
 
-Tests override the resource-level service with `AshStorage.Service.Test`, even
-when the resource was compiled with R2 settings. No R2 environment variables or
-real credentials are required to run the tests.
+SQLite stores accounts, authentication tokens, targets, photos, blobs, and attachments. Image bytes live in your private R2 bucket. There is no
+local disk storage fallback.
 
-### Creating a photo (after adding persistence)
+## Pages
+
+| Route | Function |
+| --- | --- |
+| `/` | Welcome page |
+| `/users/register`, `/users/log-in` | Registration and password authentication |
+| `/app` | Paginated photo journal, personal charts, and targets |
+| `/app/add` | Upload and save a private food photo |
+| `/app/account` | Save/clear targets, upload/remove an avatar, and log out |
+| `/app/account/settings` | Change password while keeping existing sessions |
+
+The calories, protein, weight, steps, and body-fat charts remain in the UI, with
+7-, 30-, and 90-day ranges. They currently show **empty states**, not sample data.
+Daily-entry persistence and its actions have been removed for now; a future data
+source can feed the existing chart components. Personal targets remain persisted.
+
+**Photos are not automatically analyzed yet.** Photo-based AI nutrition analysis
+is planned, but no AI provider, analysis job, or fabricated sample history is connected.
+
+The cream/pastel journal design uses Tailwind v4 and custom components. Scripts
+and styles are bundled through `app.js` and `app.css`.
+
+## Ash architecture
+
+- Resource actions own validation, ownership, persistence, and attachment behavior.
+  The AshSqlite repo explicitly enables write transactions and configures a busy
+  timeout above the query timeout. Production defaults to one connection,
+  overridable with `POOL_SIZE`; development and tests use the library pool default.
+- Application interfaces live on `OpenTrack.Accounts` and `OpenTrack.Food`.
+  Controller and LiveView forms are generated by AshPhoenix from those interfaces.
+- Owner policies restrict users, photos, and settings. Callers
+  cannot supply ownership through writable action inputs.
+- AshAuthentication verifies persisted tokens for HTTP and LiveView sessions.
+  The Phoenix routing, controller, cookie session, and LiveView hooks are explicit
+  application code for learning; `ash_authentication_phoenix` is temporarily
+  removed. See [the authentication walkthrough](docs/authentication.md) and
+  [follow-up tasks](TODO.md). Registration/login use ordinary CSRF-protected HTTP
+  forms; the controller sets the session cookie directly, without a temporary-token
+  handoff. Passwords and tokens are filtered from Phoenix logs.
+- Password changes preserve existing sessions without extending their expiry.
+  Explicit logout still revokes credentials. Mounted LiveViews recheck session
+  validity on events and navigation.
+- Blob and attachment resources are internal infrastructure, not public APIs.
+  Owner-authorized reads load AshStorage's `image_url` and `avatar_url`
+  calculations. Browsers download images directly from private R2 using
+  five-minute signed URLs; Phoenix does not download or proxy image bytes.
 
 ```elixir
 upload = %Plug.Upload{
-  path: "/tmp/lunch.jpg",
-  filename: "lunch.jpg",
-  content_type: "image/jpeg"
+  path: "/tmp/lunch.png",
+  filename: "lunch.png",
+  content_type: "image/png"
 }
 
 photo = OpenTrack.Food.create_food_photo!(upload, actor: current_user)
-
-photo =
-  OpenTrack.Food.get_food_photo!(photo.id,
-    actor: current_user,
-    load: [:image_url, image: :blob]
-  )
-
-photo.image.blob.key      # Generated key; the S3 service prepends "food/" in R2
-photo.image.blob.filename # "lunch.jpg"
-photo.image_url           # Short-lived signed download URL
+OpenTrack.Food.list_food_photos!(actor: current_user, page: [limit: 24, count: true])
 ```
 
-The create action requires an image and derives `user_id` from the actor.
-`AshStorage.Changes.AttachFile` handles the upload and creates Blob/FoodPhotoAttachment
-records, forwarding the action context. FoodPhoto policies restrict reads and
-attachment actions to its owner. Storage resources are internal; do not expose
-raw blob or attachment actions as public endpoints without their own authorization.
-Before adding upload endpoints, also implement server-side file type/size
-validation (a client-supplied MIME type is not proof of image content).
+The journal action enables keyset pagination; each caller supplies a page limit.
+The LiveView requests 24 photos and a total count, adding a cursor for subsequent pages.
 
-AshStorage generates `attach_image`, `detach_image`, and `purge_image` actions.
-Replacing the image purges the old file; destroying the FoodPhoto also purges its
-attachment. Database and R2 writes are not one atomic transaction, so production
-upload handling will also need failure/orphan cleanup.
+## Migrations
 
-### User avatars (after adding persistence)
+**The `RemoveDailyEntries` migration drops the old `daily_entries` table and its
+contents. Back up any data you want to retain before applying it.** Rolling it
+back recreates the schema, not the deleted records. Earlier migrations are preserved;
+the retired resource's snapshot is removed so reintroducing it will generate a new table.
 
-Avatar actions live on User; their application interfaces live on Accounts:
+Change the Ash resource, then generate and review migrations:
 
-```elixir
-upload = %Plug.Upload{
-  path: "/tmp/avatar.jpg",
-  filename: "avatar.jpg",
-  content_type: "image/jpeg"
-}
-
-user = OpenTrack.Accounts.update_user_avatar!(current_user, upload, actor: current_user)
-
-user =
-  OpenTrack.Accounts.get_user_by_id!(user.id,
-    actor: current_user,
-    load: [:avatar_url, avatar: :blob]
-  )
-
-user.avatar.blob.filename # "avatar.jpg"
-user.avatar_url           # Short-lived signed download URL
-
-OpenTrack.Accounts.remove_user_avatar!(user, actor: current_user)
+```sh
+mix ash.codegen describe_change
+mix ash.migrate
 ```
 
-The update action requires `uploaded_avatar` and maps it to the `avatar` attachment.
-It accepts no account attributes, so an upload cannot change an email or password.
-A user may have no avatar; removing one uses AshStorage's `purge_avatar` action,
-which removes its attachment, blob, and stored file. Uploading a replacement purges
-the previous avatar through AshStorage's single-attachment behavior.
+During iterative development, use `mix ash.codegen --dev`, then generate the
+final named migration when the feature is ready. Always review generated output.
 
-Only the owner may read their user record through the standard read action or run
-avatar upload, attach, detach, and purge actions. Existing AshAuthentication
-interactions retain their authentication bypass. Avatars are private in this first
-implementation; public profiles would need a separate, carefully scoped read API.
+Commit migrations **and** `priv/resource_snapshots/`. `mix precommit` checks
+that resource declarations and snapshots agree. In development,
+`AshPhoenix.Plug.CheckCodegenStatus` also checks for pending code generation after
+code reload. The existing `Phoenix.Ecto.CheckRepoStatus` separately checks for
+unapplied migrations. Neither check automatically changes the database.
 
-This is backend wiring only: no upload UI or endpoint is added. As with food
-photos, add server-side image-content and size validation, persistence, and
-failure/orphan cleanup before exposing uploads. The file argument validates a
-file input, not that its bytes are a safe image. Do not call internal storage
-resource actions directly from a public endpoint.
+### SQLite foreign-key exception
 
-## Learn more
+AshStorage prefetches attachments, deletes the parent photo, then deletes the
+attachment/blob metadata before committing. SQLite's immediate foreign key
+would otherwise reject the parent deletion. The food attachment foreign key is
+therefore nullable with `on_delete: :nilify`; it becomes null temporarily during
+that transaction, and AshStorage removes the attachment afterwards. The photo's
+user foreign key remains required. This follows AshStorage's built-in
+`dependent: :purge` lifecycle and its [database integration example](https://github.com/ash-project/ash_storage/blob/790dbc1082b9c160d4357de563fe3e101c519e70/test/support/oban/pg_attachment.ex);
+there is no custom child-first deletion hook.
 
-* Official website: https://www.phoenixframework.org/
-* Guides: https://hexdocs.pm/phoenix/overview.html
-* Docs: https://hexdocs.pm/phoenix
-* Forum: https://elixirforum.com/c/phoenix-forum
-* Source: https://github.com/phoenixframework/phoenix
+The generated foreign-key alteration contained an explicit unsupported-operation
+`raise`. `AttachmentDestroyLifecycle` replaces that placeholder with SQLite's
+required table-copy/rebuild procedure, retaining existing records and restoring
+the unique index. The initial migration's rollback also replaces generated
+placeholders with dependency-ordered table drops. Snapshots are generated, not
+hand-edited. Populated-table up/down/up and complete rollback/reapply have been
+verified against an isolated SQLite database.
+
+## File storage and deployment
+
+AshStorage is pinned to a reviewed Git revision because it is not released on Hex.
+It stores image metadata in SQLite and bytes in a private Cloudflare R2 bucket.
+LiveView uploads allow one JPG, PNG, or WebP file of at most 8 MB. Resource actions
+do not repeat these upload restrictions or perform an explicit empty-file check.
+Image contents and dimensions are not inspected; a filename or supplied MIME type
+is not proof that the file is a valid image. Review validation before adding upload
+entry points outside LiveView; see [TODO.md](TODO.md).
+
+Storage configuration is resolved **at runtime**, not during compilation.
+Startup fails if the R2 account ID or credentials are missing. Tests use
+in-memory storage and do not require R2 credentials.
+
+### Cloudflare R2
+
+Create the private `open-track` bucket configured in `config/runtime.exs` and set:
+
+```sh
+export R2_ACCOUNT_ID="your-cloudflare-account-id"
+export R2_ACCESS_KEY_ID="your-access-key-id"
+export R2_SECRET_ACCESS_KEY="your-secret-access-key"
+```
+
+Alternatively, use 1Password CLI. Create a git-ignored `.env` in the project root
+containing **secret references**, not secret values. Replace each example path
+with the reference copied from the corresponding field in your existing item:
+
+```dotenv
+R2_ACCOUNT_ID="op://YOUR_VAULT/YOUR_ITEM/YOUR_ACCOUNT_ID_FIELD"
+R2_ACCESS_KEY_ID="op://YOUR_VAULT/YOUR_ITEM/YOUR_ACCESS_KEY_ID_FIELD"
+R2_SECRET_ACCESS_KEY="op://YOUR_VAULT/YOUR_ITEM/YOUR_SECRET_ACCESS_KEY_FIELD"
+```
+
+With 1Password CLI authenticated, run:
+
+```sh
+op run --account instaleap-llc.1password.com --env-file .env -- mix setup
+op run --account instaleap-llc.1password.com --env-file .env -- mix phx.server
+```
+
+Mix does not load `.env` itself; `op run` resolves the references and injects the
+values into the child process. The 1Password account is separate from the
+Cloudflare account identified by `R2_ACCOUNT_ID`.
+
+Food images use the `food/` prefix and avatars use `avatars/`. Ash policies check
+ownership before the app supplies signed URLs. Anyone holding a signed URL can
+fetch that image until it expires, even after logout; downloaded copies are not
+revoked. URLs expire after 300 seconds. Reloading the page generates fresh URLs
+if an image has not loaded before its URL expires; there is no background refresh.
+The bucket stays private, and the image proxy controller/routes are removed.
+
+Only credential environment-variable names, not their values, are stored in
+blob options. Existing blobs retain their original storage locations, so changing
+configuration does not move existing files.
+
+Production also requires `DATABASE_PATH`, `SECRET_KEY_BASE`, and
+`TOKEN_SIGNING_SECRET`; configure `PHX_HOST` and `PHX_SERVER` as appropriate.
+The SQLite database must live on persistent storage. Release startup runs pending
+migrations through the existing migrator child.
+
+**Storage operations are not distributed transactions.** SQLite rolls back
+metadata on action failure, but a provider failure or process crash can leave
+orphaned objects. There is no background reconciliation worker in this app;
+production operations must account for that limitation. Normal upload,
+replacement, purge, and storage-unavailable flows are covered by tests. Live R2
+connectivity requires your credentials and has not been exercised by these tests.
+
+## Checks
+
+```sh
+mix precommit
+mix assets.build
+```
+
+Tests use real SQLite persistence with sandbox isolation and in-memory file
+storage. They cover authentication, session revocation, ownership, uniqueness,
+form submissions and remounts, photo/avatar lifecycle, pagination, signed image
+URLs, validation, storage errors, and charts without fabricated data. URL-signing
+tests use fake credentials and do not contact R2.

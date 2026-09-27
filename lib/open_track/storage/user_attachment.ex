@@ -4,18 +4,24 @@ defmodule OpenTrack.Storage.UserAttachment do
 
   Avatar attachments use the name `"avatar"`. Keeping user attachments separate
   from food photo attachments lets each resource require its own owner.
-  No persistence data layer is configured yet. Manage these internal records
+  SQLite persists this metadata. Manage these internal records
   through the Accounts domain's avatar actions, not a public storage API.
   """
 
   use Ash.Resource,
     otp_app: :open_track,
     domain: OpenTrack.Storage,
-    extensions: [AshStorage.AttachmentResource]
+    extensions: [AshStorage.AttachmentResource],
+    data_layer: AshSqlite.DataLayer
 
   attachment do
     blob_resource OpenTrack.Storage.Blob
     belongs_to_resource :user, OpenTrack.Accounts.User
+  end
+
+  sqlite do
+    table "user_attachments"
+    repo OpenTrack.Repo
   end
 
   attributes do

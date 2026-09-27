@@ -20,6 +20,13 @@ resources do
 end
 ```
 
+### Prefer IDs for updates and deletes
+
+- Prefer passing the target's ID (`id` or `photo.id`) to generated domain update/destroy functions when the interface supports identifiers and the caller does not otherwise need the record. For example, use `OpenTrack.Food.delete_food_photo(id, actor: user)` instead of fetching the photo solely to delete it.
+- Keep record-based calls when the record is already available or needed for forms, validations, or other logic. Do not remove required fresh reads, such as reloading the current password hash before a password change.
+- This preference simplifies application calls; it does **not** guarantee one SQL query or better performance. Ash may read the record and related data internally for authorization and lifecycle hooks. Verify query behavior before claiming an optimization.
+- Preserve actor authorization, attachment cleanup, and success/error behavior when changing from records to IDs, and cover those behaviors with tests.
+
 ## Code Generation
 
 Start with generators wherever possible. They provide a starting point for your code and can be modified if needed.

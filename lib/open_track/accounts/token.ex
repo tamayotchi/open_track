@@ -3,7 +3,13 @@ defmodule OpenTrack.Accounts.Token do
     otp_app: :open_track,
     domain: OpenTrack.Accounts,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAuthentication.TokenResource]
+    extensions: [AshAuthentication.TokenResource],
+    data_layer: AshSqlite.DataLayer
+
+  sqlite do
+    table "tokens"
+    repo OpenTrack.Repo
+  end
 
   actions do
     defaults [:read]

@@ -40,3 +40,6 @@ npm-debug.log
 *.db-*
 
 /.pi/
+
+# Local 1Password secret-reference mapping.
+/.env

@@ -20,6 +20,33 @@ if System.get_env("PHX_SERVER") do
   config :open_track, OpenTrackWeb.Endpoint, server: true
 end
 
+# R2 is required outside tests. Owner-authorized reads load signed image URLs;
+# browsers download directly from the private bucket. AshSqlite persists metadata.
+if config_env() != :test do
+  account_id = System.fetch_env!("R2_ACCOUNT_ID")
+  System.fetch_env!("R2_ACCESS_KEY_ID")
+  System.fetch_env!("R2_SECRET_ACCESS_KEY")
+
+  for {resource, prefix} <- [
+        {OpenTrack.Food.FoodPhoto, "food/"},
+        {OpenTrack.Accounts.User, "avatars/"}
+      ] do
+    config :open_track, resource,
+      storage: [
+        service:
+          {AshStorage.Service.S3,
+           bucket: "tama-track",
+           prefix: prefix,
+           endpoint_url: "https://#{account_id}.r2.cloudflarestorage.com",
+           region: "auto",
+           access_key_id_env: "R2_ACCESS_KEY_ID",
+           secret_access_key_env: "R2_SECRET_ACCESS_KEY",
+           presigned: true,
+           expires_in: 300}
+      ]
+  end
+end
+
 if config_env() == :prod do
   database_path =
     System.get_env("DATABASE_PATH") ||
@@ -30,7 +57,7 @@ if config_env() == :prod do
 
   config :open_track, OpenTrack.Repo,
     database: database_path,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5")
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "1")
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

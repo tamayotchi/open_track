@@ -1,156 +1,110 @@
 defmodule OpenTrack.Accounts.User.SettingsTest do
-  use ExUnit.Case, async: true
+  use OpenTrack.DataCase
 
   import Ash.Test
+  import OpenTrack.Fixtures
 
   alias OpenTrack.Accounts
-  alias OpenTrack.Accounts.User
-  alias OpenTrack.Accounts.User.Settings
 
-  setup do
-    owner = %User{id: Ash.UUID.generate()}
-    other_user = %User{id: Ash.UUID.generate()}
+  test "targets persist, update, and clear" do
+    owner = user()
 
-    %{
-      owner: owner,
-      other_user: other_user,
-      settings: %Settings{id: Ash.UUID.generate(), user_id: owner.id}
-    }
+    settings =
+      Accounts.create_settings!(%{target_weight_kg: 70, target_body_fat_percent: 20},
+        actor: owner
+      )
+
+    loaded = Accounts.get_settings_for_user!(owner.id, actor: owner)
+    assert loaded.id == settings.id
+    assert loaded.user_id == owner.id
+    assert loaded.target_weight_kg == 70.0
+    assert loaded.target_body_fat_percent == 20.0
+
+    Accounts.update_settings!(settings, %{target_weight_kg: 72.5, target_body_fat_percent: nil},
+      actor: owner
+    )
+
+    loaded = Accounts.get_settings!(settings.id, actor: owner)
+    assert loaded.target_weight_kg == 72.5
+    assert is_nil(loaded.target_body_fat_percent)
   end
 
-  describe "create authorization" do
-    test "creates settings for the actor without a transactional data layer", %{owner: owner} do
-      # Regression: the previous record-filter policy raised CannotFilterCreates.
-      # Simple returns a struct; this test does not persist a database record.
-      settings =
-        Accounts.create_settings!(
-          %{target_weight_kg: 70, target_body_fat_percent: 20},
-          actor: owner
-        )
+  test "each user can have only one settings record" do
+    owner = user()
+    settings = Accounts.create_settings!(%{}, actor: owner)
 
-      assert settings.user_id == owner.id
-      assert settings.target_weight_kg == 70.0
-      assert settings.target_body_fat_percent == 20.0
-      assert settings.id
-    end
+    assert_has_error(Accounts.create_settings(%{}, actor: owner), Ash.Error.Invalid, fn error ->
+      match?(%Ash.Error.Changes.InvalidAttribute{field: :user_id}, error)
+    end)
 
-    test "checks the proposed owner on the changeset", %{owner: owner, other_user: other_user} do
-      changeset = Ash.Changeset.for_create(Settings, :create, %{}, actor: owner)
-
-      assert changeset.valid?
-      assert Ash.Changeset.get_attribute(changeset, :user_id) == owner.id
-      assert Ash.can?(changeset, owner, run_queries?: false)
-
-      # Simulate an incorrect owner assignment by another resource change.
-      wrong_owner = Ash.Changeset.force_change_attribute(changeset, :user_id, other_user.id)
-      refute Ash.can?(wrong_owner, owner, run_queries?: false)
-    end
-
-    test "rejects creation without an actor" do
-      changeset = Ash.Changeset.for_create(Settings, :create, %{target_weight_kg: 70})
-
-      assert_has_error(changeset, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Changes.InvalidRelationship{relationship: :user}, error)
-      end)
-
-      refute Ash.can?(changeset, nil, run_queries?: false)
-      assert {:error, _} = Accounts.create_settings(%{target_weight_kg: 70})
-    end
-
-    test "does not accept caller-supplied ownership", %{owner: owner, other_user: other_user} do
-      result = Accounts.create_settings(%{user_id: other_user.id}, actor: owner)
-
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Invalid.NoSuchInput{input: :user_id}, error)
-      end)
-    end
+    assert Accounts.get_settings_for_user!(owner.id, actor: owner).id == settings.id
   end
 
-  describe "read authorization" do
-    test "only returns settings belonging to the actor", %{
-      owner: owner,
-      other_user: other_user,
-      settings: own_settings
-    } do
-      other_settings = %Settings{id: Ash.UUID.generate(), user_id: other_user.id}
+  test "settings cannot be read or updated by another user or an anonymous caller" do
+    owner = user()
+    settings = Accounts.create_settings!(%{target_weight_kg: 70}, actor: owner)
 
-      # Supply records to the existing Simple data layer; no database is needed.
-      results =
-        Settings
-        |> Ash.Query.for_read(:read, %{}, actor: owner)
-        |> Ash.DataLayer.Simple.set_data([own_settings, other_settings])
-        |> Ash.read!()
+    for actor <- [user(), nil] do
+      for result <- [
+            Accounts.get_settings(settings.id, actor: actor),
+            Accounts.get_settings_for_user(owner.id, actor: actor)
+          ] do
+        assert_has_error(result, Ash.Error.Invalid, &match?(%Ash.Error.Query.NotFound{}, &1))
+      end
 
-      assert Enum.map(results, & &1.id) == [own_settings.id]
-    end
+      result = Accounts.update_settings(settings, %{target_weight_kg: 60}, actor: actor)
 
-    test "the get interface cannot fetch another user's settings", %{
-      owner: owner,
-      other_user: other_user,
-      settings: settings
-    } do
-      query = Ash.DataLayer.Simple.set_data(Settings, [settings])
-
-      assert Accounts.get_settings!(settings.id, actor: owner, query: query).id == settings.id
-
-      result = Accounts.get_settings(settings.id, actor: other_user, query: query)
-
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Query.NotFound{}, error)
-      end)
-    end
-
-    test "the domain's user lookup preserves ownership filtering", %{
-      owner: owner,
-      other_user: other_user,
-      settings: settings
-    } do
-      query = Ash.DataLayer.Simple.set_data(Settings, [settings])
-
-      assert Accounts.get_settings_for_user!(owner.id, actor: owner, query: query).id ==
-               settings.id
-
-      result = Accounts.get_settings_for_user(owner.id, actor: other_user, query: query)
-
-      assert_has_error(result, Ash.Error.Invalid, fn error ->
-        match?(%Ash.Error.Query.NotFound{}, error)
-      end)
-    end
-
-    test "does not return settings without an actor", %{settings: settings} do
-      results =
-        Settings
-        |> Ash.Query.for_read(:read, %{}, actor: nil)
-        |> Ash.DataLayer.Simple.set_data([settings])
-        |> Ash.read!()
-
-      assert results == []
-    end
-  end
-
-  describe "update and destroy authorization" do
-    test "the domain's update interface preserves ownership authorization", %{
-      owner: owner,
-      other_user: other_user,
-      settings: settings
-    } do
-      assert Accounts.can_update_settings?(owner, settings, %{}, run_queries?: false)
-      refute Accounts.can_update_settings?(other_user, settings, %{}, run_queries?: false)
-      refute Accounts.can_update_settings?(nil, settings, %{}, run_queries?: false)
-    end
-
-    for action <- [:update, :destroy] do
-      test "#{action} is only authorized for the owner", %{
-        owner: owner,
-        other_user: other_user,
-        settings: settings
-      } do
-        action = unquote(action)
-
-        assert Ash.can?({settings, action}, owner, run_queries?: false)
-        refute Ash.can?({settings, action}, other_user, run_queries?: false)
-        refute Ash.can?({settings, action}, nil, run_queries?: false)
+      if actor do
+        # Atomic updates apply the ownership filter and match no record for another user.
+        assert_has_error(result, Ash.Error.Invalid, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+      else
+        assert {:error, %Ash.Error.Forbidden{}} = result
       end
     end
+
+    assert Accounts.get_settings!(settings.id, actor: owner).target_weight_kg == 70.0
+  end
+
+  test "creation derives ownership from the actor" do
+    assert_has_error(Accounts.create_settings(%{}), Ash.Error.Invalid, fn error ->
+      match?(%Ash.Error.Changes.InvalidRelationship{relationship: :user}, error)
+    end)
+
+    assert_has_error(
+      Accounts.create_settings(%{user_id: Ash.UUID.generate()}, actor: user()),
+      Ash.Error.Invalid,
+      &match?(%Ash.Error.Invalid.NoSuchInput{input: :user_id}, &1)
+    )
+  end
+
+  test "target constraints apply to creation and updates without changing saved values" do
+    owner = user()
+
+    settings =
+      Accounts.create_settings!(%{target_weight_kg: 70, target_body_fat_percent: 20},
+        actor: owner
+      )
+
+    for {field, value} <- [
+          {:target_weight_kg, 0},
+          {:target_weight_kg, 201},
+          {:target_body_fat_percent, 0},
+          {:target_body_fat_percent, 100}
+        ] do
+      params = %{field => value}
+
+      for result <- [
+            Accounts.create_settings(params, actor: user()),
+            Accounts.update_settings(settings, params, actor: owner)
+          ] do
+        assert_has_error(result, Ash.Error.Invalid, fn error ->
+          match?(%Ash.Error.Changes.InvalidAttribute{field: ^field}, error)
+        end)
+      end
+    end
+
+    loaded = Accounts.get_settings!(settings.id, actor: owner)
+    assert loaded.target_weight_kg == 70.0
+    assert loaded.target_body_fat_percent == 20.0
   end
 end

@@ -1,34 +1,99 @@
 defmodule OpenTrack.AccountsTest do
-  use ExUnit.Case, async: true
+  use OpenTrack.DataCase
+
+  import Ash.Test
+  import OpenTrack.Fixtures
 
   alias OpenTrack.Accounts
-  alias OpenTrack.Accounts.User
 
-  setup do
-    user = %User{
-      id: Ash.UUID.generate(),
-      email: Ash.CiString.new("user-#{System.unique_integer([:positive])}@example.com")
-    }
+  @auth_opts [context: %{private: %{ash_authentication?: true}}]
 
-    other_user = %User{
-      id: Ash.UUID.generate(),
-      email: Ash.CiString.new("user-#{System.unique_integer([:positive])}@example.com")
-    }
+  test "registration persists a hashed password and unique case-insensitive email" do
+    user = user(%{email: "Member@Example.com"})
+    loaded = Accounts.get_user_by_id!(user.id, actor: user)
+    assert to_string(loaded.email) == "member@example.com"
+    assert Bcrypt.verify_pass("valid-password", loaded.hashed_password)
 
-    %{user: user, query: Ash.DataLayer.Simple.set_data(User, [user, other_user])}
+    assert_has_error(
+      Accounts.register_user(
+        %{
+          email: "MEMBER@example.com",
+          password: "valid-password",
+          password_confirmation: "valid-password"
+        },
+        @auth_opts
+      ),
+      Ash.Error.Invalid,
+      &match?(%Ash.Error.Changes.InvalidAttribute{field: :email}, &1)
+    )
   end
 
-  # These tests check interface dispatch and filters, not authentication policies.
-  # Records are supplied in memory; no persistence data layer is required.
-  test "looks up users by ID through the domain", %{user: user, query: query} do
-    result = Accounts.get_user_by_id!(user.id, query: query, authorize?: false)
+  test "changing the password requires the current password and replaces the login credential" do
+    user = user()
 
-    assert result.id == user.id
+    assert {:ok, signed_in} =
+             Accounts.sign_in(
+               %{email: to_string(user.email), password: "valid-password"},
+               @auth_opts
+             )
+
+    assert signed_in.id == user.id
+
+    params = %{password: "new-password", password_confirmation: "new-password"}
+
+    assert_has_error(
+      Accounts.change_user_password(user, Map.put(params, :current_password, "wrong"),
+        actor: user
+      ),
+      &match?(%AshAuthentication.Errors.AuthenticationFailed{}, &1)
+    )
+
+    Accounts.change_user_password!(user, Map.put(params, :current_password, "valid-password"),
+      actor: user
+    )
+
+    assert_has_error(
+      Accounts.sign_in(%{email: to_string(user.email), password: "valid-password"}, @auth_opts),
+      &match?(%AshAuthentication.Errors.AuthenticationFailed{}, &1)
+    )
+
+    assert Accounts.sign_in!(
+             %{email: to_string(user.email), password: "new-password"},
+             @auth_opts
+           ).id ==
+             user.id
   end
 
-  test "looks up users by email through the domain", %{user: user, query: query} do
-    result = Accounts.get_user_by_email!(to_string(user.email), query: query, authorize?: false)
+  test "knowing the password does not allow another actor to change it" do
+    owner = user()
 
-    assert result.id == user.id
+    params = %{
+      current_password: "valid-password",
+      password: "new-password",
+      password_confirmation: "new-password"
+    }
+
+    for actor <- [user(), nil] do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Accounts.change_user_password(owner, params, actor: actor)
+    end
+
+    assert Accounts.sign_in!(
+             %{email: to_string(owner.email), password: "valid-password"},
+             @auth_opts
+           ).id ==
+             owner.id
+  end
+
+  test "user records and avatar URLs are private" do
+    owner = user()
+
+    for actor <- [user(), nil] do
+      assert_has_error(
+        Accounts.get_user_by_id(owner.id, actor: actor, load: :avatar_url),
+        Ash.Error.Invalid,
+        &match?(%Ash.Error.Query.NotFound{}, &1)
+      )
+    end
   end
 end

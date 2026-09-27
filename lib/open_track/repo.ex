@@ -1,5 +1,6 @@
 defmodule OpenTrack.Repo do
-  use Ecto.Repo,
-    otp_app: :open_track,
-    adapter: Ecto.Adapters.SQLite3
+  use AshSqlite.Repo, otp_app: :open_track
+
+  @impl true
+  def write_transactions?, do: true
 end
