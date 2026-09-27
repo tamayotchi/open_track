@@ -43,10 +43,11 @@ defmodule OpenTrackWeb.NutritionChart do
 
     values =
       entries
-      |> Enum.filter(
-        &(Date.compare(&1.date, first_date) != :lt and Date.compare(&1.date, today) != :gt)
-      )
-      |> Enum.filter(&(not is_nil(Map.get(&1, metric.key))))
+      |> Enum.filter(fn entry ->
+        Date.compare(entry.date, first_date) != :lt and
+          Date.compare(entry.date, today) != :gt and
+          not is_nil(Map.get(entry, metric.key))
+      end)
       |> Enum.sort_by(& &1.date, Date)
       |> Enum.map(&%{date: &1.date, value: Map.fetch!(&1, metric.key)})
 

@@ -1,4 +1,6 @@
 defmodule OpenTrack.Secrets do
+  @moduledoc "Resolves the authentication token signing secret from runtime configuration."
+
   use AshAuthentication.Secret
 
   def secret_for(

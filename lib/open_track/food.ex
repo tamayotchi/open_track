@@ -1,4 +1,6 @@
 defmodule OpenTrack.Food do
+  @moduledoc "Interfaces for managing a user's private food photo journal."
+
   use Ash.Domain,
     otp_app: :open_track,
     extensions: [AshPhoenix]

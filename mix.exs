@@ -70,6 +70,7 @@ defmodule OpenTrack.MixProject do
       {:ash_authentication, "== 4.15.0"},
       {:usage_rules, "~> 1.0", only: [:dev]},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ash, "~> 3.0"},
       # AshStorage has not been released on Hex yet; pin the reviewed revision.
       {:ash_storage,
@@ -133,6 +134,7 @@ defmodule OpenTrack.MixProject do
         "compile --warnings-as-errors",
         "deps.unlock --unused",
         "format",
+        "credo --strict",
         "ash.codegen --check",
         "test"
       ]

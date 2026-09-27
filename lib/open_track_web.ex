@@ -83,8 +83,8 @@ defmodule OpenTrackWeb do
       import OpenTrackWeb.CoreComponents
 
       # Common modules used in templates
-      alias Phoenix.LiveView.JS
       alias OpenTrackWeb.Layouts
+      alias Phoenix.LiveView.JS
 
       # Routes generation with the ~p sigil
       unquote(verified_routes())

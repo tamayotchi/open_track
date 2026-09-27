@@ -1,4 +1,6 @@
 defmodule OpenTrack.Accounts.Token do
+  @moduledoc "Persisted authentication tokens and revocation records managed by AshAuthentication."
+
   use Ash.Resource,
     otp_app: :open_track,
     domain: OpenTrack.Accounts,

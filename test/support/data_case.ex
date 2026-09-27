@@ -16,6 +16,9 @@ defmodule OpenTrack.DataCase do
 
   use ExUnit.CaseTemplate
 
+  alias AshStorage.Service.Test, as: TestStorage
+  alias Ecto.Adapters.SQL.Sandbox
+
   using do
     quote do
       alias OpenTrack.Repo
@@ -36,14 +39,14 @@ defmodule OpenTrack.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(OpenTrack.Repo, shared: not tags[:async])
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+    pid = Sandbox.start_owner!(OpenTrack.Repo, shared: not tags[:async])
+    on_exit(fn -> Sandbox.stop_owner(pid) end)
 
     # SQLite integration tests run synchronously and share the in-memory file store.
     # Database rollback does not clean up uploaded bytes.
     unless tags[:async] do
-      AshStorage.Service.Test.reset!()
-      on_exit(fn -> AshStorage.Service.Test.reset!() end)
+      TestStorage.reset!()
+      on_exit(fn -> TestStorage.reset!() end)
     end
   end
 

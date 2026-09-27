@@ -1,4 +1,6 @@
 defmodule OpenTrack.Accounts.User do
+  @moduledoc "User accounts with password authentication and private avatars."
+
   use Ash.Resource,
     otp_app: :open_track,
     domain: OpenTrack.Accounts,

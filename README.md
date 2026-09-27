@@ -197,6 +197,16 @@ mix precommit
 mix assets.build
 ```
 
+`mix precommit` runs compilation with warnings as errors, removes unused locks,
+formats code, runs `credo --strict`, checks Ash code generation, and runs tests.
+For linting alone, run `mix credo --strict` (or `MIX_ENV=test mix credo --strict`).
+Credo is a development/test-only dependency and does not start at runtime.
+
+The generated and reviewed `.credo.exs` keeps the default checks and enables
+strict mode. It covers `lib/`, `test/`, `config/`, `mix.exs`, and the seed script;
+the `app_name/` reference scaffold and historical/generated migrations are outside
+its scope. No CI is configured yet; when added, it should run `mix precommit`.
+
 Tests use real SQLite persistence with sandbox isolation and in-memory file
 storage. They cover authentication, session revocation, ownership, uniqueness,
 form submissions and remounts, photo/avatar lifecycle, pagination, signed image

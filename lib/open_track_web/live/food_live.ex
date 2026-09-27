@@ -2,7 +2,7 @@ defmodule OpenTrackWeb.FoodLive do
   use OpenTrackWeb, :live_view
 
   alias OpenTrack.{Accounts, Food}
-  alias OpenTrackWeb.{FoodComponents, NutritionComponents, NutritionChart}
+  alias OpenTrackWeb.{FoodComponents, NutritionChart, NutritionComponents}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -65,10 +65,12 @@ defmodule OpenTrackWeb.FoodLive do
   def handle_event("delete-photo", %{"id" => id}, socket) do
     user = socket.assigns.current_user
 
-    with :ok <- Food.delete_food_photo(id, actor: user) do
-      {:noreply, load_photos(socket) |> put_flash(:info, "Photo deleted.")}
-    else
-      _ -> {:noreply, put_flash(socket, :error, "Could not delete this photo.")}
+    case Food.delete_food_photo(id, actor: user) do
+      :ok ->
+        {:noreply, load_photos(socket) |> put_flash(:info, "Photo deleted.")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Could not delete this photo.")}
     end
   end
 

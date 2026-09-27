@@ -1,4 +1,6 @@
 defmodule OpenTrack.Accounts do
+  @moduledoc "Account authentication, profile, and settings interfaces."
+
   use Ash.Domain,
     otp_app: :open_track,
     extensions: [AshPhoenix]
