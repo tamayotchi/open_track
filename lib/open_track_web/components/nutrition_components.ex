@@ -74,7 +74,11 @@ defmodule OpenTrackWeb.NutritionComponents do
       <p class="nutrition-average">
         <strong>{NutritionChart.format(@plot.average, @metric.precision)}</strong><span>{@metric.unit}</span>
       </p>
-      <p class="nutrition-average-label">Average of recorded days · Missing days are not zero</p>
+      <p class="nutrition-average-label">
+        {if @metric.key in [:calories, :protein],
+          do: "AI estimates · UTC upload-day totals · Not measured intake",
+          else: "Average of recorded days"} · Missing days are not zero
+      </p>
       <div
         class="chart-scroll"
         tabindex="0"
@@ -90,7 +94,9 @@ defmodule OpenTrackWeb.NutritionComponents do
         >
           <title id={"#{@id}-title"}>{@metric.title}: last {@days} days</title>
           <desc id={"#{@id}-description"}>
-            Your recorded measurements. Exact values are in the table below. Unrecorded days are left blank.
+            {if @metric.key in [:calories, :protein],
+              do: "AI photo estimates summed by UTC upload date, not measured intake.",
+              else: "Your recorded measurements."} Values are in the table below. Unrecorded days are left blank.
           </desc>
           <g :for={tick <- @plot.ticks} class="chart-grid-line">
             <line x1="42" x2={@plot.width - 12} y1={tick.y} y2={tick.y} />

@@ -4,12 +4,15 @@ defmodule OpenTrack.FoodTest do
   import Ash.Test
   import OpenTrack.Fixtures
 
+  import OpenTrack.AnalysisFixtures,
+    only: [create_unanalyzed_photo: 1, create_unanalyzed_photo: 2]
+
   alias OpenTrack.Food
   alias OpenTrack.Storage.{Blob, FoodPhotoAttachment}
 
   test "uploads persist ownership, analysis defaults, metadata, and bytes" do
     owner = user()
-    photo = Food.create_food_photo!(upload(), actor: owner)
+    photo = create_unanalyzed_photo(owner)
     loaded = Food.get_food_photo!(photo.id, actor: owner, load: [image: :blob])
 
     assert loaded.user_id == owner.id
@@ -23,7 +26,7 @@ defmodule OpenTrack.FoodTest do
 
   test "deleting by ID enforces ownership and purges attachment metadata and bytes" do
     owner = user()
-    photo = Food.create_food_photo!(upload(), actor: owner)
+    photo = create_unanalyzed_photo(owner)
     loaded = Food.get_food_photo!(photo.id, actor: owner, load: [image: :blob])
 
     for actor <- [user(), nil] do
@@ -65,11 +68,11 @@ defmodule OpenTrack.FoodTest do
 
     photos =
       for day <- 1..3 do
-        Food.create_food_photo!(file, actor: owner)
+        create_unanalyzed_photo(owner, file)
         |> Ash.Seed.update!(%{inserted_at: DateTime.add(~U[2026-01-01 12:00:00Z], day, :day)})
       end
 
-    Food.create_food_photo!(file, actor: user())
+    create_unanalyzed_photo(user(), file)
     expected_ids = photos |> Enum.reverse() |> Enum.map(& &1.id)
     first_page = Food.list_food_photos!(actor: owner, page: [limit: 2, count: true])
 
@@ -95,7 +98,7 @@ defmodule OpenTrack.FoodTest do
     # Seed read-only timestamps so the tie is deterministic.
     photos =
       for _ <- 1..2 do
-        Food.create_food_photo!(file, actor: owner)
+        create_unanalyzed_photo(owner, file)
         |> Ash.Seed.update!(%{inserted_at: ~U[2026-01-01 12:00:00.000000Z]})
       end
 
@@ -113,7 +116,7 @@ defmodule OpenTrack.FoodTest do
 
   test "photo reads and image URLs are private" do
     owner = user()
-    photo = Food.create_food_photo!(upload(), actor: owner)
+    photo = create_unanalyzed_photo(owner)
 
     for actor <- [user(), nil] do
       assert_has_error(

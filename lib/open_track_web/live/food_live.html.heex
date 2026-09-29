@@ -34,7 +34,8 @@
       </.form>
     </div>
     <p class="section-description">
-      Your charts are ready. Measurements will appear once data tracking is connected.
+      Calories and protein are AI estimates summed by UTC upload date, not measured intake.
+      Missing days stay blank. Other measurements are not connected.
     </p>
     <div class="nutrition-grid">
       <NutritionComponents.chart
@@ -67,6 +68,18 @@
         <p>Start with a little food moment.</p>
       </div>
     </div>
+    <div
+      id="food-ai-notice"
+      class="mb-5 rounded-lg border-2 border-black/20 bg-white/60 p-4 text-sm leading-relaxed"
+    >
+      <p>
+        <strong>AI nutrition estimates</strong>
+        · Saving sends this photo, including embedded metadata,
+        to OpenRouter and the provider of <span class="font-semibold">google/gemini-3.1-flash-lite</span>.
+        Calories and portions are rough estimates, not measurements. Your stored photo stays private.
+        A failed analysis never removes your photo.
+      </p>
+    </div>
     <.form
       for={@form}
       id="photo-form"
@@ -79,14 +92,14 @@
           upload={@uploads.photo}
           class="photo-file-input"
           aria-label="Choose a food photo"
-          aria-describedby="upload-help"
+          aria-describedby="upload-help food-ai-notice"
         />
         <span class="neo-button add-button" aria-hidden="true">
           <.icon name="hero-plus" class="size-6" /> Choose photo
         </span>
       </div>
       <p id="upload-help" class="upload-help">
-        JPG, PNG or WebP · Up to 8 MB · Private to your account
+        JPG, PNG or WebP · Up to 8 MB · Stored in your private journal
       </p>
       <div
         :for={entry <- @uploads.photo.entries}
@@ -118,7 +131,7 @@
               class="neo-button small-button"
               phx-disable-with="Saving…"
             >
-              Save photo
+              Save & estimate
             </button>
             <button
               type="button"

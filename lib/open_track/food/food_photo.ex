@@ -14,6 +14,8 @@ defmodule OpenTrack.Food.FoodPhoto do
     extensions: [AshStorage],
     data_layer: AshSqlite.DataLayer
 
+  alias OpenTrack.Food.Analysis
+
   storage do
     blob_resource OpenTrack.Storage.Blob
     attachment_resource OpenTrack.Storage.FoodPhotoAttachment
@@ -39,6 +41,7 @@ defmodule OpenTrack.Food.FoodPhoto do
     end
 
     create :create do
+      notifiers [Analysis.Notifier]
       primary? true
       accept []
       argument :uploaded_file, :file, allow_nil?: false
@@ -46,6 +49,25 @@ defmodule OpenTrack.Food.FoodPhoto do
       change relate_actor(:user)
 
       change {AshStorage.Changes.AttachFile, argument: :uploaded_file, attachment: :image}
+    end
+
+    update :update_analysis do
+      accept [:analysis, :analysis_status]
+
+      validate attribute_equals(:analysis_status, :completed), where: present(:analysis)
+      validate attribute_does_not_equal(:analysis_status, :completed), where: absent(:analysis)
+    end
+
+    read :nutrition_chart_data do
+      argument :from, :utc_datetime_usec, allow_nil?: false
+      argument :until, :utc_datetime_usec, allow_nil?: false
+
+      filter expr(
+               analysis_status == :completed and inserted_at >= ^arg(:from) and
+                 inserted_at < ^arg(:until)
+             )
+
+      prepare build(select: [:analysis, :inserted_at])
     end
   end
 
@@ -71,6 +93,7 @@ defmodule OpenTrack.Food.FoodPhoto do
 
     attribute :analysis, :map do
       public? true
+      sensitive? true
     end
 
     create_timestamp :inserted_at

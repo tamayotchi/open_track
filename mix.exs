@@ -63,6 +63,8 @@ defmodule OpenTrack.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:req_llm, "~> 1.24"},
+      {:ash_ai, "~> 1.0"},
       {:ash_phoenix, "~> 2.3"},
       {:ash_sqlite, "~> 0.2.19"},
       {:bcrypt_elixir, "~> 3.0"},

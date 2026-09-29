@@ -7,6 +7,9 @@ config :ash, policies: [show_policy_breakdowns?: true]
 config :open_track, OpenTrack.Food.FoodPhoto, storage: [service: {AshStorage.Service.Test, []}]
 config :open_track, OpenTrack.Accounts.User, storage: [service: {AshStorage.Service.Test, []}]
 
+# Ash AI uses a fake ReqLLM module; tests never call a paid provider.
+config :open_track, :analysis_req_llm, OpenTrack.FakeReqLLM
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

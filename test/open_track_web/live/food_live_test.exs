@@ -2,9 +2,11 @@ defmodule OpenTrackWeb.FoodLiveTest do
   use OpenTrackWeb.ConnCase
   import Phoenix.LiveViewTest
   import OpenTrack.Fixtures
+  import OpenTrack.AnalysisFixtures
   alias OpenTrack.Food
 
   setup %{conn: conn} do
+    configure_ai()
     owner = user()
     %{conn: log_in(conn, owner), owner: owner}
   end
@@ -40,6 +42,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     assert [photo] =
              Food.list_food_photos!(actor: owner, page: [limit: 24], load: :image_url).results
 
+    await_photo(photo.id, owner, :failed)
     assert is_binary(photo.image_url)
     assert has_element?(view, "#photos-#{photo.id} img[src='#{photo.image_url}']")
     {:ok, reloaded, _} = live(conn, "/app")
@@ -55,7 +58,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
 
   test "another user's photos stay hidden and forged deletion events fail", %{conn: conn} do
     other = user()
-    photo = Food.create_food_photo!(upload(), actor: other)
+    photo = create_unanalyzed_photo(other)
     {:ok, view, _} = live(conn, "/app")
     refute has_element?(view, "#photos-#{photo.id}")
     refute has_element?(view, "#food_log-#{photo.id}")
@@ -127,7 +130,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     owner: owner
   } do
     file = upload()
-    for _ <- 1..49, do: Food.create_food_photo!(file, actor: owner)
+    for _ <- 1..49, do: create_unanalyzed_photo(owner, file)
 
     expected_ids =
       Food.list_food_photos!(actor: owner, page: [limit: 49]).results |> Enum.map(& &1.id)

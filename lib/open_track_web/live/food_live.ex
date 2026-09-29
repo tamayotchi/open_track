@@ -20,6 +20,7 @@ defmodule OpenTrackWeb.FoodLive do
        settings: Accounts.get_settings_for_user!(user.id, actor: user, not_found_error?: false)
      )
      |> load_photos()
+     |> load_nutrition()
      |> allow_upload(:photo,
        accept: ~w(.jpg .jpeg .png .webp),
        max_entries: 1,
@@ -67,7 +68,8 @@ defmodule OpenTrackWeb.FoodLive do
 
     case Food.delete_food_photo(id, actor: user) do
       :ok ->
-        {:noreply, load_photos(socket) |> put_flash(:info, "Photo deleted.")}
+        {:noreply,
+         socket |> load_photos() |> load_nutrition() |> put_flash(:info, "Photo deleted.")}
 
       _ ->
         {:noreply, put_flash(socket, :error, "Could not delete this photo.")}
@@ -75,7 +77,7 @@ defmodule OpenTrackWeb.FoodLive do
   end
 
   def handle_event("range", %{"days" => days}, socket) do
-    {:noreply, assign(socket, days: NutritionChart.days(days))}
+    {:noreply, socket |> assign(days: NutritionChart.days(days)) |> load_nutrition()}
   end
 
   defp save_photo(socket) do
@@ -95,7 +97,10 @@ defmodule OpenTrackWeb.FoodLive do
     case result do
       {:ok, _photo} ->
         {:noreply,
-         socket |> load_photos() |> put_flash(:info, "Photo saved.") |> push_patch(to: ~p"/app")}
+         socket
+         |> load_photos()
+         |> put_flash(:info, "Photo saved.")
+         |> push_patch(to: ~p"/app")}
 
       {:error, _} ->
         {:noreply,
@@ -127,6 +132,40 @@ defmodule OpenTrackWeb.FoodLive do
     |> stream(:photos, page.results, reset: is_nil(after_key))
     |> stream(:food_log, page.results, reset: is_nil(after_key))
   end
+
+  defp load_nutrition(socket) do
+    today = socket.assigns.today
+    from = DateTime.new!(Date.add(today, 1 - socket.assigns.days), ~T[00:00:00], "Etc/UTC")
+    until = DateTime.new!(Date.add(today, 1), ~T[00:00:00], "Etc/UTC")
+
+    entries =
+      Food.nutrition_chart_data!(from, until, actor: socket.assigns.current_user)
+      |> Enum.reduce(%{}, &add_photo_nutrition/2)
+      |> Enum.map(fn {date, totals} -> Map.put(totals, :date, date) end)
+      |> Enum.sort_by(& &1.date, Date)
+
+    assign(socket, entries: entries, today: today)
+  end
+
+  defp add_photo_nutrition(
+         %{
+           analysis: %{
+             "food_detected" => true,
+             "total_calories" => calories,
+             "total_protein_g" => protein
+           }
+         } = photo,
+         days
+       )
+       when is_number(calories) and calories >= 0 and is_number(protein) and protein >= 0 do
+    date = DateTime.to_date(photo.inserted_at)
+
+    Map.update(days, date, %{calories: calories, protein: protein}, fn totals ->
+      %{calories: totals.calories + calories, protein: totals.protein + protein}
+    end)
+  end
+
+  defp add_photo_nutrition(_, days), do: days
 
   defp upload_error(:too_large), do: "Choose an image smaller than 8 MB."
   defp upload_error(:too_many_files), do: "Choose one photo at a time."

@@ -14,8 +14,7 @@ defmodule OpenTrack.Application do
        repos: Application.fetch_env!(:open_track, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:open_track, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: OpenTrack.PubSub},
-      # Start a worker by calling: OpenTrack.Worker.start_link(arg)
-      # {OpenTrack.Worker, arg},
+      {Task.Supervisor, name: OpenTrack.Food.AnalysisTasks, max_children: 2},
       # Start to serve requests, typically the last entry
       OpenTrackWeb.Endpoint,
       {AshAuthentication.Supervisor, [otp_app: :open_track]}

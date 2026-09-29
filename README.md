@@ -1,7 +1,7 @@
 # OpenTrack
 
 A private food journal built with Phoenix LiveView, Ash, AshAuthentication,
-AshPhoenix, AshSqlite, and AshStorage.
+AshPhoenix, AshSqlite, AshStorage, and Ash AI with ReqLLM/OpenRouter.
 
 ## Run locally
 
@@ -30,13 +30,17 @@ local disk storage fallback.
 | `/app/account` | Save/clear targets, upload/remove an avatar, and log out |
 | `/app/account/settings` | Change password while keeping existing sessions |
 
-The calories, protein, weight, steps, and body-fat charts remain in the UI, with
-7-, 30-, and 90-day ranges. They currently show **empty states**, not sample data.
-Daily-entry persistence and its actions have been removed for now; a future data
-source can feed the existing chart components. Personal targets remain persisted.
+Charts have 7-, 30-, and 90-day ranges. Calories and protein sum successful AI food
+estimates by **UTC upload date**, across all matching photos, independent of journal
+pagination. These are not measured intake: repeated photos count again, and the image
+does not establish how much was eaten. Missing, failed, and non-food results stay
+blank; averages exclude missing days. Weight, steps, and body-fat charts remain empty,
+not sample data. Personal targets remain persisted and separate from estimates.
+`FoodLive` prepares the date ranges and daily chart totals; the `Food.nutrition_chart_data`
+read provides chart inputs with ownership authorization and completed-analysis filtering in Ash.
 
-**Photos are not automatically analyzed yet.** Photo-based AI nutrition analysis
-is planned, but no AI provider, analysis job, or fabricated sample history is connected.
+New uploads receive background AI estimates. Photos remain saved when analysis
+fails. See [photo analysis](#ai-photo-analysis) for the required server configuration.
 
 The cream/pastel journal design uses Tailwind v4 and custom components. Scripts
 and styles are bundled through `app.js` and `app.css`.
@@ -60,7 +64,7 @@ and styles are bundled through `app.js` and `app.css`.
   handoff. Passwords and tokens are filtered from Phoenix logs.
 - Password changes preserve existing sessions without extending their expiry.
   Explicit logout still revokes credentials. Mounted LiveViews recheck session
-  validity on events and navigation.
+  validity on events, navigation, and background messages.
 - Blob and attachment resources are internal infrastructure, not public APIs.
   Owner-authorized reads load AshStorage's `image_url` and `avatar_url`
   calculations. Browsers download images directly from private R2 using
@@ -79,6 +83,132 @@ OpenTrack.Food.list_food_photos!(actor: current_user, page: [limit: 24, count: t
 
 The journal action enables keyset pagination; each caller supplies a page limit.
 The LiveView requests 24 photos and a total count, adding a cursor for subsequent pages.
+
+## AI photo analysis
+
+After fetching dependencies and applying the new migration with `mix ash.migrate`,
+set `FOOD_AI_API_KEY` to a **dedicated, credit-limited OpenRouter key**.
+Development and production require this variable; startup fails if it is missing.
+For 1Password, add a reference to your ignored `.env` and start via `op run` as below:
+
+```dotenv
+FOOD_AI_API_KEY="op://YOUR_VAULT/YOUR_ITEM/YOUR_FOOD_AI_KEY_FIELD"
+```
+
+All accounts use the fixed `openrouter:google/gemini-3.1-flash-lite` model declared
+in `lib/open_track/food/analysis.ex`. There is no runtime model setting or
+per-account model preference. Changing models requires a code change, including
+the upload disclosure. Runtime configuration passes `FOOD_AI_API_KEY` directly to
+ReqLLM's `:openrouter_api_key` setting. There is no custom client or request-options
+layer; Ash AI uses ReqLLM's defaults. There is no optional/disabled analysis mode. ReqLLM's automatic `.env` loading
+is disabled; credentials come only from runtime configuration.
+
+Before upload, the page discloses sharing with OpenRouter and the fixed model's
+provider. The worker sends the stored image bytes, including embedded metadata,
+not public/signed URLs, filenames, account identifiers, targets, or previous photos.
+New uploads automatically start analysis:
+
+```elixir
+OpenTrack.Food.create_food_photo!(upload, actor: current_user)
+```
+
+Only analysis status and results are stored. Status is `not_analyzed`, `completed`,
+or `failed`; non-food is a completed result with `food_detected: false` and does not
+contribute to nutrition totals. Existing photos are not automatically backfilled,
+and there is no retry button or automatic replay.
+
+### Lifecycle and safeguards
+
+The analysis resource, nested `Estimate` typed struct, and private prompt function live in
+`lib/open_track/food/analysis.ex`, with tests in `test/open_track/food/analysis_test.exs`.
+The background notifier lives in `lib/open_track/food/analysis/notifier.ex`.
+Prompt and lifecycle tests are in `test/open_track/food/analysis/`.
+Photo persistence actions and ownership policies remain on `FoodPhoto`.
+`Analysis` owns one `:analyze` action requiring an actor, and application code interfaces
+remain on `OpenTrack.Food`.
+
+- `Food.analyze_food_photo(id, actor: actor)` runs the single prompt-backed `:analyze`
+  action on `Analysis`. During prompt construction, its private `photo_content/2`
+  helper loads the owned photo after authorization and builds image content from the
+  stored bytes and MIME type. The action uses Ash AI's documented `run prompt(...)`
+  with `Analysis.Estimate` as its return type and no application tools. Its only
+  argument is the photo ID; image bytes and MIME type come from storage, never the caller.
+  Success returns `{:ok, %Analysis.Estimate{...}}`, without saving anything.
+  Errors and exceptions propagate to the caller. There are no save or failure hooks
+  on the action. Direct calls leave the photo's analysis and status unchanged.
+  Application interfaces remain generated on `OpenTrack.Food`; persistence uses
+  the separate authorized `Food.update_food_analysis` action.
+- A `Task.Supervisor` runs at most two analysis tasks **per node**, without a queue.
+  Tasks receive IDs, not image buffers. Each task reauthorizes an owned read and
+  downloads through AshStorage, using the stored bytes and recorded MIME type as-is.
+  Upload restrictions belong to the upload flow, not the analysis action.
+- Background tasks receive the original upload actor from the Ash notification.
+  Analysis reads and persistence use that actor and enforce photo ownership.
+  Owners can invoke analysis and update its results through the domain interfaces;
+  non-owners and anonymous callers cannot access or change another user's analysis.
+  Uploads still cannot set analysis results or status directly.
+- `Analysis.Notifier` schedules analysis on successful creation, outside the resource
+  transaction; no database transaction spans the AI request. Its background task
+  computes the estimate, maps errors/exceptions to a failed outcome, then makes one
+  `Food.update_food_analysis` call to save either `Map.from_struct(estimate)` with
+  `:completed` or `nil` with `:failed`. Ingredients remain constrained maps, so no
+  nested struct conversion is needed. The save is outside the exception handler, so a save failure
+  does not trigger a second update. Persistence failures are not retried.
+  The workflow assumes one worker per upload and does not lock in-flight analysis.
+  Re-running the background workflow replaces old results on success or clears them
+  on analysis failure, regardless of the previous status.
+  Closing the page does not cancel work. If both task slots are busy or the supervisor
+  is unavailable, the notifier marks analysis failed without starting the workflow.
+  The upload is preserved. Deleting a photo prevents later result writes;
+  in-flight requests may still be billed.
+- Ash AI generates the JSON Schema from the return type's `Ash.TypedStruct` fields.
+  Totals use `total_calories`, `total_protein_g`, and `total_mass_g`. Run `mix ash.migrate`
+  to rename these keys in existing saved estimates without another AI request.
+  Ash AI validates the returned fields and ingredient maps against those constraints.
+  `FoodPhoto`'s single `:update_analysis` action accepts only `:analysis` and
+  `:analysis_status`, with no intermediate estimate argument. It trusts the
+  schema-validated AI result instead of repeating field validation. Ingredient count
+  and food/non-food consistency are prompt instructions, not additional local checks.
+  The stored `analysis` attribute remains a plain map, preserving existing JSON data
+  and chart readers without a new migration. Ash/SQLite handles JSON serialization;
+  there is no manual encode/decode round-trip.
+  Updates have PATCH semantics: omitted fields are preserved, and explicit `nil`
+  clears analysis. Two built-in Ash validations keep the status consistent:
+  `:completed` requires an estimate, while `:failed` and `:not_analyzed` require `analysis: nil`.
+  Changing a completed photo to failed therefore explicitly clears its estimate:
+
+  ```elixir
+  attrs = %{analysis: Map.from_struct(estimate), analysis_status: :completed}
+  Food.update_food_analysis(id, attrs, actor: user)
+  Food.update_food_analysis(id, %{analysis: nil, analysis_status: :failed}, actor: user)
+  ```
+- Requests use ReqLLM/OpenRouter defaults for output tokens, retries, timeouts,
+  routing, and response handling. The application adds no token/response-size limits
+  or routing price ceilings. ReqLLM's default OpenRouter structured output uses a
+  schema-only function call; no application tools are executed. A failed request may
+  still be billed; use an upstream credit limit if needed.
+- Tasks are temporary and are not replayed after a crash or supervisor restart.
+  Interrupted photos remain `not_analyzed`; no expiry actions or status polling are needed.
+- Background tasks discard analysis errors rather than persisting their details.
+  Direct callers of the analysis action must handle its returned errors or exceptions.
+  ReqLLM context inspection is redacted, telemetry payload capture is disabled in
+  application configuration, and SQL parameter logging is disabled. There is no
+  custom transport-error redaction; avoid enabling raw telemetry for private photos.
+- Background results and changes from other tabs appear after a page refresh.
+  Uploads and deletions update the current tab directly. Details are collapsed and
+  clearly labeled AI estimates.
+
+Tests use Ash AI's `req_llm:` injection with `OpenTrack.FakeReqLLM`, which implements
+`generate_object/4` and returns canned results. No API key or global Req override is
+needed. Production defaults to `ReqLLM`; the model stays fixed in both environments.
+AI tests run synchronously so their fake callbacks can be shared with background tasks.
+Tests cover prompt/schema construction, authorization, validation, and persistence,
+not ReqLLM's HTTP encoding or retries. Unanalyzed photo fixtures use Ash's
+`return_notifications?: true` rather than disabling configuration.
+No paid model evaluation is part of `mix test` or
+`mix precommit`; real-provider compatibility and accuracy need separately authorized
+manual validation. Photos alone cannot reliably establish portion weights or hidden
+cooking fats. Manual correction/portion notes are a future improvement.
 
 ## Migrations
 
@@ -126,11 +256,12 @@ verified against an isolated SQLite database.
 
 AshStorage is pinned to a reviewed Git revision because it is not released on Hex.
 It stores image metadata in SQLite and bytes in a private Cloudflare R2 bucket.
-LiveView uploads allow one JPG, PNG, or WebP file of at most 8 MB. Resource actions
-do not repeat these upload restrictions or perform an explicit empty-file check.
-Image contents and dimensions are not inspected; a filename or supplied MIME type
-is not proof that the file is a valid image. Review validation before adding upload
-entry points outside LiveView; see [TODO.md](TODO.md).
+LiveView uploads allow one JPG, PNG, or WebP file of at most 8 MB. These are filename
+extension and upload-size restrictions, not full image decoding. Resource actions do
+not repeat those checks, and analysis forwards stored bytes with the recorded MIME
+type without inspecting signatures, dimensions, or size again. Storage/provider
+failures still fail analysis without deleting the saved photo.
+Generated AshStorage attachment actions remain internal infrastructure, not upload APIs.
 
 Storage configuration is resolved **at runtime**, not during compilation.
 Startup fails if the R2 account ID or credentials are missing. Tests use
@@ -138,9 +269,11 @@ in-memory storage and do not require R2 credentials.
 
 ### Cloudflare R2
 
-Create the private `open-track` bucket configured in `config/runtime.exs` and set:
+Create a private bucket and set `R2_BUCKET` to its name (the existing default is
+`tama-track`). Use a separate bucket and credentials for production and development:
 
 ```sh
+export R2_BUCKET="open-track"
 export R2_ACCOUNT_ID="your-cloudflare-account-id"
 export R2_ACCESS_KEY_ID="your-access-key-id"
 export R2_SECRET_ACCESS_KEY="your-secret-access-key"
@@ -178,8 +311,9 @@ Only credential environment-variable names, not their values, are stored in
 blob options. Existing blobs retain their original storage locations, so changing
 configuration does not move existing files.
 
-Production also requires `DATABASE_PATH`, `SECRET_KEY_BASE`, and
-`TOKEN_SIGNING_SECRET`; configure `PHX_HOST` and `PHX_SERVER` as appropriate.
+Production also requires `DATABASE_PATH`, `SECRET_KEY_BASE`, `TOKEN_SIGNING_SECRET`,
+and `PHX_HOST`; enable `PHX_SERVER=true` to serve HTTP. Follow the trusted-proxy and
+launch requirements in [docs/production.md](docs/production.md).
 The SQLite database must live on persistent storage. Release startup runs pending
 migrations through the existing migrator child.
 
@@ -205,10 +339,13 @@ Credo is a development/test-only dependency and does not start at runtime.
 The generated and reviewed `.credo.exs` keeps the default checks and enables
 strict mode. It covers `lib/`, `test/`, `config/`, `mix.exs`, and the seed script;
 the `app_name/` reference scaffold and historical/generated migrations are outside
-its scope. No CI is configured yet; when added, it should run `mix precommit`.
+its scope. `.github/workflows/ci.yml` runs the checks and builds production assets
+and a release without production credentials.
 
 Tests use real SQLite persistence with sandbox isolation and in-memory file
 storage. They cover authentication, session revocation, ownership, uniqueness,
 form submissions and remounts, photo/avatar lifecycle, pagination, signed image
-URLs, validation, storage errors, and charts without fabricated data. URL-signing
-tests use fake credentials and do not contact R2.
+URLs, validation, storage errors, and charts without fabricated data. Analysis tests
+cover request construction, structured output, authorization, concurrency, timeouts,
+supervision, deletions, page closure, and results after a page refresh. Provider and URL-signing
+tests use fake credentials and do not contact OpenRouter or R2.

@@ -7,6 +7,14 @@
 # General application configuration
 import Config
 
+# Keys come only from runtime configuration, never automatic .env discovery.
+# Redact context inspection and disable telemetry payload capture by default.
+config :req_llm,
+  load_dotenv: false,
+  redact_context: true,
+  telemetry: [payloads: :none],
+  debug: false
+
 # These enable behaviors that will become the default in the next major
 # version of Ash. Setting them now opts your application into the new
 # behavior and ensures a seamless upgrade. See the backwards compatibility

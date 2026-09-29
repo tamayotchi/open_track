@@ -20,10 +20,13 @@ if System.get_env("PHX_SERVER") do
   config :open_track, OpenTrackWeb.Endpoint, server: true
 end
 
-# R2 is required outside tests. Owner-authorized reads load signed image URLs;
+# AI and R2 credentials are required outside tests. Owner-authorized reads load signed image URLs;
 # browsers download directly from the private bucket. AshSqlite persists metadata.
 if config_env() != :test do
+  config :req_llm, :openrouter_api_key, System.fetch_env!("FOOD_AI_API_KEY")
+
   account_id = System.fetch_env!("R2_ACCOUNT_ID")
+  bucket = System.get_env("R2_BUCKET", "tama-track")
   System.fetch_env!("R2_ACCESS_KEY_ID")
   System.fetch_env!("R2_SECRET_ACCESS_KEY")
 
@@ -35,7 +38,7 @@ if config_env() != :test do
       storage: [
         service:
           {AshStorage.Service.S3,
-           bucket: "tama-track",
+           bucket: bucket,
            prefix: prefix,
            endpoint_url: "https://#{account_id}.r2.cloudflarestorage.com",
            region: "auto",
