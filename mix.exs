@@ -79,6 +79,7 @@ defmodule OpenTrack.MixProject do
       {:ash_storage,
        github: "ash-project/ash_storage", ref: "790dbc1082b9c160d4357de563fe3e101c519e70"},
       {:req_s3, "~> 0.2"},
+      {:tzdata, "~> 1.2"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},

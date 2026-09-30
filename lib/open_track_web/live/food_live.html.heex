@@ -33,9 +33,12 @@
         />
       </.form>
     </div>
-    <p class="section-description">
-      Calories and protein are AI estimates summed by UTC upload date, not measured intake.
-      Missing days stay blank. Other measurements are not connected.
+    <p id="nutrition-timezone" class="section-description">
+      Calories and protein are AI estimates summed by upload date in {@timezone_label},
+      not measured intake. Missing days stay blank. Other measurements are not connected.
+      <.link navigate={~p"/app/account#timezone-preferences"} class="text-link">
+        Change timezone
+      </.link>
     </p>
     <div class="nutrition-grid">
       <NutritionComponents.chart
@@ -44,6 +47,7 @@
         entries={@entries}
         days={@days}
         today={@today}
+        timezone_label={@timezone_label}
       />
     </div>
   </section>
@@ -162,7 +166,7 @@
       </span>
     </div>
     <div class="journal-toolbar">
-      <p>Everyday moments · Upload dates in UTC</p>
+      <p id="journal-timezone">Everyday moments · Upload dates in {@timezone_label}</p>
       <div class="journal-view-switch" role="group" aria-label="Food journal view">
         <button
           type="button"
@@ -197,16 +201,21 @@
           <.icon name="hero-plus" class="size-4" /> Add your first photo
         </.link>
       </div>
-      <FoodComponents.photo_card :for={{id, photo} <- @streams.photos} id={id} photo={photo} />
+      <FoodComponents.photo_card
+        :for={{id, photo} <- @streams.photos}
+        id={id}
+        photo={photo}
+        timezone={@timezone}
+      />
     </div>
     <div id="food-log-panel" class="food-log-panel" hidden={@view_mode != :table}>
       <div class="table-scroll" tabindex="0" role="region" aria-label="Food journal table">
         <table class="food-log-table">
-          <caption class="sr-only">Your food journal. Upload dates in UTC.</caption>
+          <caption class="sr-only">Your food journal. Upload dates in {@timezone_label}.</caption>
           <thead>
             <tr>
               <th scope="col">Photo</th>
-              <th scope="col">Uploaded (UTC)</th>
+              <th scope="col">Uploaded ({@timezone_label})</th>
               <th scope="col">Status</th>
             </tr>
           </thead>
@@ -218,6 +227,7 @@
               :for={{id, photo} <- @streams.food_log}
               id={id}
               photo={photo}
+              timezone={@timezone}
             />
           </tbody>
         </table>

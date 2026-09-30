@@ -1,6 +1,6 @@
 defmodule OpenTrack.Accounts.User.Settings do
   @moduledoc """
-  Per-user settings for health/fitness targets.
+  Per-user settings for health/fitness targets and local calendar preferences.
 
   Each user has at most one `Settings` record. The `:user_id` identity
   enforces this uniqueness at the database level.
@@ -15,6 +15,7 @@ defmodule OpenTrack.Accounts.User.Settings do
   sqlite do
     table "settings"
     repo OpenTrack.Repo
+    migration_defaults timezone: "\"Etc/UTC\""
   end
 
   actions do
@@ -22,11 +23,11 @@ defmodule OpenTrack.Accounts.User.Settings do
 
     update :update do
       primary? true
-      accept [:target_weight_kg, :target_body_fat_percent]
+      accept [:target_weight_kg, :target_body_fat_percent, :timezone]
     end
 
     create :create do
-      accept [:target_weight_kg, :target_body_fat_percent]
+      accept [:target_weight_kg, :target_body_fat_percent, :timezone]
       change relate_actor(:user)
       primary? true
     end
@@ -52,6 +53,12 @@ defmodule OpenTrack.Accounts.User.Settings do
 
     attribute :target_body_fat_percent, :float do
       constraints greater_than: 0, less_than: 100
+      public? true
+    end
+
+    attribute :timezone, :string do
+      allow_nil? false
+      default "Etc/UTC"
       public? true
     end
 

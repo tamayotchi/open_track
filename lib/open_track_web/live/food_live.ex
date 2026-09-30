@@ -2,22 +2,25 @@ defmodule OpenTrackWeb.FoodLive do
   use OpenTrackWeb, :live_view
 
   alias OpenTrack.{Accounts, Food}
-  alias OpenTrackWeb.{FoodComponents, NutritionChart, NutritionComponents}
+  alias OpenTrackWeb.{FoodComponents, NutritionChart, NutritionComponents, Timezones}
 
   @impl true
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
-    today = Date.utc_today()
+    settings = Accounts.get_settings_for_user!(user.id, actor: user, not_found_error?: false)
+    timezone = if settings, do: settings.timezone, else: Timezones.utc()
 
     {:ok,
      socket
      |> assign(
        form: Food.form_to_create_food_photo(actor: user, as: "photo") |> to_form(),
        view_mode: :cards,
-       today: today,
+       today: Timezones.today(timezone),
+       timezone: timezone,
+       timezone_label: Timezones.label(timezone),
        days: 7,
        entries: [],
-       settings: Accounts.get_settings_for_user!(user.id, actor: user, not_found_error?: false)
+       settings: settings
      )
      |> load_photos()
      |> load_nutrition()
@@ -134,13 +137,13 @@ defmodule OpenTrackWeb.FoodLive do
   end
 
   defp load_nutrition(socket) do
-    today = socket.assigns.today
-    from = DateTime.new!(Date.add(today, 1 - socket.assigns.days), ~T[00:00:00], "Etc/UTC")
-    until = DateTime.new!(Date.add(today, 1), ~T[00:00:00], "Etc/UTC")
+    timezone = socket.assigns.timezone
+    today = Timezones.today(timezone)
+    {from, until} = Timezones.utc_range(Date.add(today, 1 - socket.assigns.days), today, timezone)
 
     entries =
       Food.nutrition_chart_data!(from, until, actor: socket.assigns.current_user)
-      |> Enum.reduce(%{}, &add_photo_nutrition/2)
+      |> Enum.reduce(%{}, &add_photo_nutrition(&1, &2, timezone))
       |> Enum.map(fn {date, totals} -> Map.put(totals, :date, date) end)
       |> Enum.sort_by(& &1.date, Date)
 
@@ -155,17 +158,18 @@ defmodule OpenTrackWeb.FoodLive do
              "total_protein_g" => protein
            }
          } = photo,
-         days
+         days,
+         timezone
        )
        when is_number(calories) and calories >= 0 and is_number(protein) and protein >= 0 do
-    date = DateTime.to_date(photo.inserted_at)
+    date = Timezones.local_date(photo.inserted_at, timezone)
 
     Map.update(days, date, %{calories: calories, protein: protein}, fn totals ->
       %{calories: totals.calories + calories, protein: totals.protein + protein}
     end)
   end
 
-  defp add_photo_nutrition(_, days), do: days
+  defp add_photo_nutrition(_, days, _timezone), do: days
 
   defp upload_error(:too_large), do: "Choose an image smaller than 8 MB."
   defp upload_error(:too_many_files), do: "Choose one photo at a time."

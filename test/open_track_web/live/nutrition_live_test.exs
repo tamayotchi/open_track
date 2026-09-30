@@ -4,7 +4,7 @@ defmodule OpenTrackWeb.NutritionLiveTest do
   import OpenTrack.Fixtures
   import OpenTrack.AnalysisFixtures
   alias OpenTrack.Accounts
-  alias OpenTrackWeb.NutritionChart
+  alias OpenTrackWeb.{NutritionChart, Timezones}
 
   setup %{conn: conn} do
     owner = user()
@@ -65,6 +65,104 @@ defmodule OpenTrackWeb.NutritionLiveTest do
 
     assert chart_values(view, :calories) == [{first_label, "520"}, {today_label, "1040"}]
     assert chart_values(view, :protein) == [{first_label, "32.0"}, {today_label, "64.0"}]
+  end
+
+  test "Colombia totals use local dates and include exactly the local chart boundaries", %{
+    conn: conn,
+    owner: owner
+  } do
+    Accounts.create_settings!(%{timezone: "America/Bogota"}, actor: owner)
+    today = Timezones.today("America/Bogota")
+    first_date = Date.add(today, -6)
+    {from, until} = Timezones.utc_range(first_date, today, "America/Bogota")
+    {midnight, _} = Timezones.utc_range(today, today, "America/Bogota")
+
+    for timestamp <- [
+          DateTime.add(from, -1, :second),
+          from,
+          DateTime.add(midnight, -1, :second),
+          midnight,
+          DateTime.add(until, -1, :second),
+          until
+        ] do
+      nutrition_photo(owner, timestamp)
+    end
+
+    late_photo = nutrition_photo(owner, DateTime.add(midnight, 21, :hour))
+    nutrition_photo(user(), midnight)
+    {:ok, view, _} = live(conn, "/app")
+
+    labels =
+      Enum.map([first_date, Date.add(today, -1), today], &Calendar.strftime(&1, "%b %-d, %Y"))
+
+    assert chart_values(view, :calories) == Enum.zip(labels, ["520", "520", "1560"])
+    assert chart_values(view, :protein) == Enum.zip(labels, ["32.0", "32.0", "96.0"])
+    assert has_element?(view, "#nutrition-timezone", "America/Bogota")
+    assert has_element?(view, "#journal-timezone", "America/Bogota")
+
+    expected_time = Calendar.strftime(today, "%b %-d, %Y") <> " · 21:00 -05"
+    datetime = DateTime.to_iso8601(late_photo.inserted_at)
+
+    assert has_element?(
+             view,
+             "#photos-#{late_photo.id} time[datetime='#{datetime}']",
+             expected_time
+           )
+
+    assert has_element?(
+             view,
+             "#food_log-#{late_photo.id} time[datetime='#{datetime}']",
+             expected_time
+           )
+  end
+
+  test "positive-offset timezones include uploads on the previous UTC date", %{
+    conn: conn,
+    owner: owner
+  } do
+    Accounts.create_settings!(%{timezone: "Asia/Tokyo"}, actor: owner)
+    today = Timezones.today("Asia/Tokyo")
+    first_date = Date.add(today, -6)
+    {from, until} = Timezones.utc_range(first_date, today, "Asia/Tokyo")
+
+    for timestamp <- [
+          from,
+          DateTime.add(from, -1, :second),
+          DateTime.add(until, -1, :second),
+          until
+        ] do
+      nutrition_photo(owner, timestamp)
+    end
+
+    {:ok, view, _} = live(conn, "/app")
+
+    assert chart_values(view, :calories) == [
+             {Calendar.strftime(first_date, "%b %-d, %Y"), "520"},
+             {Calendar.strftime(today, "%b %-d, %Y"), "520"}
+           ]
+  end
+
+  test "changing the timezone regroups historical uploads without changing UTC timestamps", %{
+    conn: conn,
+    owner: owner
+  } do
+    today = Date.utc_today()
+    timestamp = DateTime.new!(today, ~T[02:00:00], "Etc/UTC")
+    photo = nutrition_photo(owner, timestamp)
+    {:ok, view, _} = live(conn, "/app")
+    assert chart_values(view, :calories) == [{Calendar.strftime(today, "%b %-d, %Y"), "520"}]
+
+    Accounts.create_settings!(%{timezone: "America/Bogota"}, actor: owner)
+    {:ok, local_view, _} = live(conn, "/app")
+
+    assert chart_values(local_view, :calories) == [
+             {Calendar.strftime(Date.add(today, -1), "%b %-d, %Y"), "520"}
+           ]
+
+    assert DateTime.compare(
+             OpenTrack.Food.get_food_photo!(photo.id, actor: owner).inserted_at,
+             timestamp
+           ) == :eq
   end
 
   test "chart totals include photos beyond the visible journal page", %{conn: conn, owner: owner} do

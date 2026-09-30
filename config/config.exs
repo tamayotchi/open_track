@@ -7,6 +7,8 @@
 # General application configuration
 import Config
 
+config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
+
 config :open_track, Oban,
   engine: Oban.Engines.Lite,
   notifier: Oban.Notifiers.PG,

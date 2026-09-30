@@ -19,8 +19,8 @@ defmodule OpenTrack.Accounts do
     end
 
     resource OpenTrack.Accounts.User.Settings do
-      define :get_settings, action: :read, get_by: [:id]
       define :get_settings_for_user, action: :read, get_by: [:user_id]
+
       define :create_settings, action: :create
       define :update_settings, action: :update
     end

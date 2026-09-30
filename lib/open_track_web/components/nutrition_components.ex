@@ -43,6 +43,7 @@ defmodule OpenTrackWeb.NutritionComponents do
   attr :expanded, :boolean, default: true
   attr :entries, :list, required: true
   attr :today, Date, required: true
+  attr :timezone_label, :string, default: "UTC"
 
   def chart(assigns) do
     assigns =
@@ -76,7 +77,7 @@ defmodule OpenTrackWeb.NutritionComponents do
       </p>
       <p class="nutrition-average-label">
         {if @metric.key in [:calories, :protein],
-          do: "AI estimates · UTC upload-day totals · Not measured intake",
+          do: "AI estimates · #{@timezone_label} upload-day totals · Not measured intake",
           else: "Average of recorded days"} · Missing days are not zero
       </p>
       <div
@@ -95,7 +96,8 @@ defmodule OpenTrackWeb.NutritionComponents do
           <title id={"#{@id}-title"}>{@metric.title}: last {@days} days</title>
           <desc id={"#{@id}-description"}>
             {if @metric.key in [:calories, :protein],
-              do: "AI photo estimates summed by UTC upload date, not measured intake.",
+              do:
+                "AI photo estimates summed by upload date in #{@timezone_label}, not measured intake.",
               else: "Your recorded measurements."} Values are in the table below. Unrecorded days are left blank.
           </desc>
           <g :for={tick <- @plot.ticks} class="chart-grid-line">

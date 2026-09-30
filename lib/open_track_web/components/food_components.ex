@@ -2,17 +2,28 @@ defmodule OpenTrackWeb.FoodComponents do
   @moduledoc "Presentation of Ash food photo records. No inference or storage operations."
   use OpenTrackWeb, :html
 
+  alias OpenTrackWeb.Timezones
+
   attr :id, :string, required: true
   attr :photo, OpenTrack.Food.FoodPhoto, required: true
 
+  attr :timezone, :string, default: "Etc/UTC"
+
   def photo_card(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :uploaded_at,
+        Timezones.local_datetime(assigns.photo.inserted_at, assigns.timezone)
+      )
+
     ~H"""
     <article id={@id} class="photo-card" data-analysis-status={@photo.analysis_status}>
       <.photo_image photo={@photo} />
       <div class="photo-caption">
         <h3>Food moment</h3>
         <time datetime={DateTime.to_iso8601(@photo.inserted_at)}>
-          {Calendar.strftime(@photo.inserted_at, "%b %-d, %Y · %H:%M UTC")}
+          {Calendar.strftime(@uploaded_at, "%b %-d, %Y · %H:%M %Z")}
         </time>
         <button
           type="button"
@@ -74,13 +85,22 @@ defmodule OpenTrackWeb.FoodComponents do
   attr :id, :string, required: true
   attr :photo, OpenTrack.Food.FoodPhoto, required: true
 
+  attr :timezone, :string, default: "Etc/UTC"
+
   def food_log_row(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :uploaded_at,
+        Timezones.local_datetime(assigns.photo.inserted_at, assigns.timezone)
+      )
+
     ~H"""
     <tr id={@id} data-analysis-status={@photo.analysis_status}>
       <td><.photo_image photo={@photo} /></td>
       <td>
         <time datetime={DateTime.to_iso8601(@photo.inserted_at)}>
-          {Calendar.strftime(@photo.inserted_at, "%b %-d, %Y · %H:%M")}
+          {Calendar.strftime(@uploaded_at, "%b %-d, %Y · %H:%M %Z")}
         </time>
       </td>
       <td>

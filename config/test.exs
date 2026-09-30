@@ -1,4 +1,5 @@
 import Config
+config :tzdata, :autoupdate, :disabled
 config :open_track, Oban, testing: :manual
 config :open_track, token_signing_secret: "iqs8owz38g37IVNr/sxQ6rojZJG/CT+X"
 config :bcrypt_elixir, log_rounds: 1

@@ -2,6 +2,7 @@ defmodule OpenTrackWeb.AccountLive do
   use OpenTrackWeb, :live_view
 
   alias OpenTrack.Accounts
+  alias OpenTrackWeb.Timezones
 
   @impl true
   def mount(_params, _session, socket) do
@@ -10,7 +11,8 @@ defmodule OpenTrackWeb.AccountLive do
 
     {:ok,
      socket
-     |> assign(page_title: "Your account", form: targets_form(settings, user))
+     |> assign(page_title: "Your account", timezone_options: Timezones.timezone_options())
+     |> assign_settings_forms(settings)
      |> load_profile()
      |> allow_upload(:avatar,
        accept: ~w(.jpg .jpeg .png .webp),
@@ -29,11 +31,29 @@ defmodule OpenTrackWeb.AccountLive do
       {:ok, settings} ->
         {:noreply,
          socket
-         |> assign(form: targets_form(settings, socket.assigns.current_user))
+         |> assign_settings_forms(settings)
          |> put_flash(:info, "Targets saved.")}
 
       {:error, form} ->
         {:noreply, assign(socket, form: to_form(form))}
+    end
+  end
+
+  def handle_event("validate-timezone", %{"preferences" => params}, socket) do
+    {:noreply,
+     assign(socket, timezone_form: AshPhoenix.Form.validate(socket.assigns.timezone_form, params))}
+  end
+
+  def handle_event("save-timezone", %{"preferences" => params}, socket) do
+    case AshPhoenix.Form.submit(socket.assigns.timezone_form, params: params) do
+      {:ok, settings} ->
+        {:noreply,
+         socket
+         |> assign_settings_forms(settings)
+         |> put_flash(:info, "Timezone preferences saved.")}
+
+      {:error, form} ->
+        {:noreply, assign(socket, timezone_form: to_form(form))}
     end
   end
 
@@ -104,11 +124,20 @@ defmodule OpenTrackWeb.AccountLive do
     )
   end
 
-  defp targets_form(nil, user),
-    do: Accounts.form_to_create_settings(actor: user, as: "targets") |> to_form()
+  defp assign_settings_forms(socket, settings) do
+    user = socket.assigns.current_user
 
-  defp targets_form(settings, user),
-    do: Accounts.form_to_update_settings(settings, actor: user, as: "targets") |> to_form()
+    assign(socket,
+      form: settings_form(settings, user, "targets"),
+      timezone_form: settings_form(settings, user, "preferences")
+    )
+  end
+
+  defp settings_form(nil, user, name),
+    do: Accounts.form_to_create_settings(actor: user, as: name) |> to_form()
+
+  defp settings_form(settings, user, name),
+    do: Accounts.form_to_update_settings(settings, actor: user, as: name) |> to_form()
 
   @impl true
   def render(assigns) do
@@ -214,6 +243,45 @@ defmodule OpenTrackWeb.AccountLive do
               phx-disable-with="Saving…"
             >
               Save targets <.icon name="hero-check" class="size-5" />
+            </button>
+          </.form>
+        </section>
+        <section id="timezone-preferences" class="targets-editor" aria-labelledby="timezone-title">
+          <div class="flex items-center gap-3">
+            <span class="flex size-10 items-center justify-center rounded-lg bg-green-100">
+              <.icon name="hero-globe-americas" class="size-6" />
+            </span>
+            <h2 id="timezone-title">Your day, your timezone</h2>
+          </div>
+          <p>
+            Choose your timezone so daily calorie and protein totals and journal dates follow
+            your local day. UTC is the default.
+          </p>
+          <.form
+            for={@timezone_form}
+            id="timezone-form"
+            phx-change="validate-timezone"
+            phx-submit="save-timezone"
+            class="auth-form"
+          >
+            <.input
+              field={@timezone_form[:timezone]}
+              type="select"
+              label="Timezone"
+              options={@timezone_options}
+            />
+            <p class="field-help">
+              Choose the region or city matching your local time, such as America/Bogota.
+              Daylight saving changes are handled automatically. Changing your timezone also
+              regroups past totals; timestamps remain stored in UTC.
+            </p>
+            <button
+              id="save-timezone"
+              type="submit"
+              class="neo-button auth-submit transition-transform hover:-translate-y-0.5"
+              phx-disable-with="Saving…"
+            >
+              Save timezone <.icon name="hero-check" class="size-5" />
             </button>
           </.form>
         </section>
