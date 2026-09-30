@@ -18,6 +18,7 @@ defmodule OpenTrack.AccountsTest do
       Accounts.register_user(
         %{
           email: "MEMBER@example.com",
+          nickname: "another-member",
           password: "valid-password",
           password_confirmation: "valid-password"
         },
@@ -26,6 +27,58 @@ defmodule OpenTrack.AccountsTest do
       Ash.Error.Invalid,
       &match?(%Ash.Error.Changes.InvalidAttribute{field: :email}, &1)
     )
+  end
+
+  test "registration persists a normalized nickname and rejects duplicates regardless of case" do
+    owner = user(%{nickname: "  Member  "})
+    loaded = Accounts.get_user_by_id!(owner.id, actor: owner)
+    assert to_string(loaded.nickname) == "member"
+
+    for nickname <- ["member", "MEMBER", " Member "] do
+      assert_has_error(
+        Accounts.register_user(
+          %{
+            email: "another@example.com",
+            nickname: nickname,
+            password: "valid-password",
+            password_confirmation: "valid-password"
+          },
+          @auth_opts
+        ),
+        Ash.Error.Invalid,
+        &match?(%Ash.Error.Changes.InvalidAttribute{field: :nickname}, &1)
+      )
+    end
+  end
+
+  test "registration requires a non-blank nickname" do
+    params = %{
+      email: "member@example.com",
+      password: "valid-password",
+      password_confirmation: "valid-password"
+    }
+
+    for input <- [params | Enum.map([nil, "", "   "], &Map.put(params, :nickname, &1))] do
+      assert_has_error(
+        Accounts.register_user(input, @auth_opts),
+        Ash.Error.Invalid,
+        &match?(%Ash.Error.Changes.Required{field: :nickname}, &1)
+      )
+    end
+  end
+
+  test "a nickname cannot be used instead of an email to sign in" do
+    owner = user(%{nickname: "member"})
+
+    assert_has_error(
+      Accounts.sign_in(%{email: "member", password: "valid-password"}, @auth_opts),
+      &match?(%AshAuthentication.Errors.AuthenticationFailed{}, &1)
+    )
+
+    assert Accounts.sign_in!(
+             %{email: to_string(owner.email), password: "valid-password"},
+             @auth_opts
+           ).id == owner.id
   end
 
   test "changing the password requires the current password and replaces the login credential" do

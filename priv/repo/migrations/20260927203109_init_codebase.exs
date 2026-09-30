@@ -11,10 +11,12 @@ defmodule OpenTrack.Repo.Migrations.InitCodebase do
     create table(:users, primary_key: false) do
       add :hashed_password, :text, null: false
       add :email, :citext, null: false
+      add :nickname, :citext, null: false
       add :id, :uuid, null: false, primary_key: true
     end
 
     create unique_index(:users, [:email], name: "users_unique_email_index")
+    create unique_index(:users, [:nickname], name: "users_unique_nickname_index")
 
     create table(:user_attachments, primary_key: false) do
       add :blob_id,
@@ -182,6 +184,7 @@ defmodule OpenTrack.Repo.Migrations.InitCodebase do
 
     drop table(:user_attachments)
 
+    drop_if_exists unique_index(:users, [:nickname], name: "users_unique_nickname_index")
     drop_if_exists unique_index(:users, [:email], name: "users_unique_email_index")
 
     drop table(:users)

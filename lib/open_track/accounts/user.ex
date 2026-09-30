@@ -20,6 +20,7 @@ defmodule OpenTrack.Accounts.User do
     strategies do
       password :password do
         identity_field :email
+        register_action_accept [:nickname]
         hash_provider AshAuthentication.BcryptProvider
         sign_in_tokens_enabled? false
       end
@@ -81,68 +82,6 @@ defmodule OpenTrack.Accounts.User do
       change {AshAuthentication.Strategy.Password.HashPasswordChange, strategy_name: :password}
     end
 
-    read :sign_in_with_password do
-      description "Attempt to sign in using a email and password."
-      get? true
-
-      argument :email, :ci_string do
-        description "The email to use for retrieving the user."
-        allow_nil? false
-      end
-
-      argument :password, :string do
-        description "The password to check for the matching user."
-        allow_nil? false
-        sensitive? true
-      end
-
-      # validates the provided email and password and generates a token
-      prepare AshAuthentication.Strategy.Password.SignInPreparation
-
-      metadata :token, :string do
-        description "A JWT that can be used to authenticate the user."
-        allow_nil? false
-      end
-    end
-
-    create :register_with_password do
-      description "Register a new user with a email and password."
-
-      argument :email, :ci_string do
-        allow_nil? false
-      end
-
-      argument :password, :string do
-        description "The proposed password for the user, in plain text."
-        allow_nil? false
-        constraints min_length: 8
-        sensitive? true
-      end
-
-      argument :password_confirmation, :string do
-        description "The proposed password for the user (again), in plain text."
-        allow_nil? false
-        sensitive? true
-      end
-
-      # Sets the email from the argument
-      change set_attribute(:email, arg(:email))
-
-      # Hashes the provided password
-      change AshAuthentication.Strategy.Password.HashPasswordChange
-
-      # Generates an authentication token for the user
-      change AshAuthentication.GenerateTokenChange
-
-      # validates that the password matches the confirmation
-      validate AshAuthentication.Strategy.Password.PasswordConfirmationValidation
-
-      metadata :token, :string do
-        description "A JWT that can be used to authenticate the user."
-        allow_nil? false
-      end
-    end
-
     read :get_by_email do
       description "Looks up a user by their email"
       get_by :email
@@ -179,6 +118,12 @@ defmodule OpenTrack.Accounts.User do
       public? true
     end
 
+    attribute :nickname, :ci_string do
+      allow_nil? false
+      public? true
+      constraints casing: :lower
+    end
+
     attribute :hashed_password, :string do
       allow_nil? false
       sensitive? true
@@ -191,5 +136,9 @@ defmodule OpenTrack.Accounts.User do
 
   identities do
     identity :unique_email, [:email]
+
+    identity :unique_nickname, [:nickname] do
+      message "has already been taken"
+    end
   end
 end

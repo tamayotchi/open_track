@@ -7,6 +7,7 @@ defmodule OpenTrack.Fixtures do
       Map.merge(
         %{
           email: "user-#{System.unique_integer([:positive])}@example.com",
+          nickname: "user-#{System.unique_integer([:positive])}",
           password: "valid-password",
           password_confirmation: "valid-password"
         },

@@ -43,6 +43,17 @@ defmodule OpenTrackWeb.AuthControllerTest do
                |> LazyHTML.query("#login-link[href='/users/log-in']")
                |> LazyHTML.to_tree()
 
+      nickname_inputs =
+        document
+        |> LazyHTML.query("#auth-form input[name='user[nickname]'][required]")
+        |> LazyHTML.to_tree()
+
+      if route == "/users/register" do
+        assert [_] = nickname_inputs
+      else
+        assert [] = nickname_inputs
+      end
+
       refute get_session(page, "user_token")
     end
   end
@@ -76,6 +87,7 @@ defmodule OpenTrackWeb.AuthControllerTest do
       post(conn, "/users/register",
         user: %{
           email: "registered@example.com",
+          nickname: "Registered",
           password: "valid-password",
           password_confirmation: "valid-password"
         }
@@ -84,6 +96,7 @@ defmodule OpenTrackWeb.AuthControllerTest do
     assert redirected_to(registered) == "/app"
     assert %User{} = owner = UserAuth.user_from_session(get_session(registered))
     assert to_string(owner.email) == "registered@example.com"
+    assert to_string(owner.nickname) == "registered"
     assert UserAuth.valid_session?(get_session(registered, "user_token"), owner)
     assert {:ok, _, _} = live(recycle(registered), "/app/account")
   end
@@ -134,7 +147,7 @@ defmodule OpenTrackWeb.AuthControllerTest do
             password_confirmation: "valid-password"
           }
         ] do
-      failed = post(conn, "/users/register", user: params)
+      failed = post(conn, "/users/register", user: Map.put(params, :nickname, "new-member"))
       document = failed |> html_response(422) |> LazyHTML.from_document()
       refute get_session(failed, "user_token")
 
@@ -147,6 +160,54 @@ defmodule OpenTrackWeb.AuthControllerTest do
                document |> LazyHTML.query("#auth-form [role='alert']") |> LazyHTML.to_tree()
 
       assert_passwords_blank(document)
+    end
+  end
+
+  test "missing, blank, malformed and taken nicknames render nickname errors", %{conn: conn} do
+    user(%{nickname: "taken"})
+
+    params = %{
+      email: "new@example.com",
+      password: "valid-password",
+      password_confirmation: "valid-password"
+    }
+
+    for input <- [
+          params | Enum.map(["", "   ", ["nested"], "TAKEN"], &Map.put(params, :nickname, &1))
+        ] do
+      failed = post(conn, "/users/register", user: input)
+      document = failed |> html_response(422) |> LazyHTML.from_document()
+      refute get_session(failed, "user_token")
+
+      assert document
+             |> LazyHTML.query("#user_nickname-errors")
+             |> LazyHTML.text()
+             |> String.trim() != ""
+
+      if input[:nickname] == "TAKEN" do
+        assert document |> LazyHTML.query("#user_nickname-errors") |> LazyHTML.text() =~
+                 "has already been taken"
+
+        assert ["taken"] =
+                 document
+                 |> LazyHTML.query("input[name='user[nickname]']")
+                 |> LazyHTML.attribute("value")
+      end
+
+      assert_passwords_blank(document)
+    end
+  end
+
+  test "login does not accept a nickname in place of an email", %{conn: conn} do
+    owner = user(%{nickname: "member"})
+
+    for credentials <- [
+          %{email: to_string(owner.nickname), password: "valid-password"},
+          %{nickname: to_string(owner.nickname), password: "valid-password"}
+        ] do
+      failed = post(conn, "/users/log-in", user: credentials)
+      assert html_response(failed, 422)
+      refute get_session(failed, "user_token")
     end
   end
 
@@ -274,6 +335,7 @@ defmodule OpenTrackWeb.AuthControllerTest do
           {"/users/register",
            %{
              email: "csrf-registration@example.com",
+             nickname: "csrf-member",
              password: "valid-password",
              password_confirmation: "valid-password"
            }}

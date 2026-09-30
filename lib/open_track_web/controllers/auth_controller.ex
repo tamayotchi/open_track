@@ -30,8 +30,13 @@ defmodule OpenTrackWeb.AuthController do
 
   defp submit_form(conn, mode, %{"user" => params}) when is_map(params) do
     # Credentials are scalar form fields, not nested structures or auth context.
+    fields =
+      if mode == :register,
+        do: ~w(nickname email password password_confirmation),
+        else: ~w(email password)
+
     params =
-      Map.new(~w(email password password_confirmation), fn field ->
+      Map.new(fields, fn field ->
         value = Map.get(params, field)
         {field, if(is_binary(value), do: value)}
       end)

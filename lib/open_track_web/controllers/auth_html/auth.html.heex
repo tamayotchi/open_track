@@ -41,6 +41,16 @@
         class="auth-form"
       >
         <.input
+          :if={@mode == :register}
+          field={@form[:nickname]}
+          type="text"
+          label="Nickname"
+          autocomplete="username"
+          autocapitalize="none"
+          spellcheck="false"
+          required
+        />
+        <.input
           field={@form[:email]}
           type="email"
           label="Email"

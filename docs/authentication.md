@@ -48,6 +48,17 @@ There is no temporary sign-in token, hidden handoff form, or token-exchange
 endpoint. The password strategy sets `sign_in_tokens_enabled? false`. Normal
 session tokens and their database records remain necessary.
 
+AshAuthentication generates `register_with_password` and `sign_in_with_password`
+from the `password :password` strategy. The domain interfaces call these generated
+actions; `register_action_accept [:nickname]` adds nickname to the registration
+inputs. The custom `change_password` action remains explicit so it can require
+the current password.
+
+Registration requires a non-blank nickname, stored trimmed and lowercase. An Ash
+identity and database unique index prevent duplicate nicknames, including case
+variants. Nicknames are reserved for future social features; login still accepts
+only an email and password.
+
 ## Session checks in HTTP and LiveView
 
 [`router.ex`](../lib/open_track_web/router.ex) uses ordinary Phoenix routes and
