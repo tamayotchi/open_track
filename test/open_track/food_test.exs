@@ -74,15 +74,14 @@ defmodule OpenTrack.FoodTest do
 
     create_unanalyzed_photo(user(), file)
     expected_ids = photos |> Enum.reverse() |> Enum.map(& &1.id)
-    first_page = Food.list_food_photos!(actor: owner, page: [limit: 2, count: true])
+    first_page = Food.list_food_photos!(owner.id, page: [limit: 2, count: true])
 
     assert Enum.map(first_page.results, & &1.id) == Enum.take(expected_ids, 2)
     assert first_page.count == 3
     assert first_page.more?
 
     last_page =
-      Food.list_food_photos!(
-        actor: owner,
+      Food.list_food_photos!(owner.id,
         page: [limit: 2, after: List.last(first_page.results).__metadata__.keyset]
       )
 
@@ -102,19 +101,19 @@ defmodule OpenTrack.FoodTest do
         |> Ash.Seed.update!(%{inserted_at: ~U[2026-01-01 12:00:00.000000Z]})
       end
 
-    first_page = Food.list_food_photos!(actor: owner, page: [limit: 1])
+    first_page = Food.list_food_photos!(owner.id, page: [limit: 1])
     assert [first] = first_page.results
     assert first_page.more?
 
     second_page =
-      Food.list_food_photos!(actor: owner, page: [limit: 1, after: first.__metadata__.keyset])
+      Food.list_food_photos!(owner.id, page: [limit: 1, after: first.__metadata__.keyset])
 
     assert [second] = second_page.results
     refute second_page.more?
     assert Enum.sort([first.id, second.id]) == Enum.sort(Enum.map(photos, & &1.id))
   end
 
-  test "photo reads and image URLs are private" do
+  test "record reads stay owner-only while journal reads are public" do
     owner = user()
     photo = create_unanalyzed_photo(owner)
 
@@ -125,7 +124,11 @@ defmodule OpenTrack.FoodTest do
         &match?(%Ash.Error.Query.NotFound{}, &1)
       )
 
-      assert Food.list_food_photos!(actor: actor, page: [limit: 24]).results == []
+      assert [public_photo] =
+               Food.list_food_photos!(owner.id, actor: actor, page: [limit: 24], load: :image_url).results
+
+      assert public_photo.id == photo.id
+      assert is_binary(public_photo.image_url)
     end
   end
 
@@ -152,7 +155,7 @@ defmodule OpenTrack.FoodTest do
       end)
     end
 
-    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
   end
 
   test "missing files raise from storage and roll back the photo" do
@@ -164,7 +167,7 @@ defmodule OpenTrack.FoodTest do
       Food.create_food_photo(file, actor: owner)
     end
 
-    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
     assert AshStorage.Service.Test.list_keys() == []
   end
 
@@ -184,7 +187,7 @@ defmodule OpenTrack.FoodTest do
     end
 
     assert {:error, _} = Food.create_food_photo(upload(), actor: owner)
-    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
     assert {:error, _} = OpenTrack.Accounts.update_user_avatar(owner, upload(), actor: owner)
     loaded = OpenTrack.Accounts.get_user_by_id!(owner.id, actor: owner, load: [avatar: :blob])
     assert loaded.avatar.id == original.avatar.id

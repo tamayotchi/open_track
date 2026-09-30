@@ -15,7 +15,7 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
         actor: owner
       )
 
-    loaded = Accounts.get_settings_for_user!(owner.id, actor: owner)
+    loaded = Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings
     assert loaded.id == settings.id
     assert loaded.user_id == owner.id
     assert loaded.target_weight_kg == 70.0
@@ -25,7 +25,7 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
       actor: owner
     )
 
-    loaded = Accounts.get_settings_for_user!(owner.id, actor: owner)
+    loaded = Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings
     assert loaded.target_weight_kg == 72.5
     assert is_nil(loaded.target_body_fat_percent)
   end
@@ -33,7 +33,7 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
   test "timezone is a stored attribute defaulting to UTC, without calculation loads" do
     owner = user()
     settings = Accounts.create_settings!(%{target_weight_kg: 70}, actor: owner)
-    loaded = Accounts.get_settings_for_user!(owner.id, actor: owner)
+    loaded = Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings
     assert settings.timezone == "Etc/UTC"
     assert loaded.timezone == "Etc/UTC"
     assert Info.attribute(settings.__struct__, :timezone)
@@ -48,23 +48,25 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
       Accounts.create_settings!(%{timezone: "America/Bogota", target_weight_kg: 70}, actor: owner)
 
     assert settings.timezone == "America/Bogota"
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).timezone == "America/Bogota"
+
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings.timezone ==
+             "America/Bogota"
 
     updated =
       Accounts.update_settings!(settings.id, %{timezone: "America/Los_Angeles"}, actor: owner)
 
     assert updated.timezone == "America/Los_Angeles"
-    loaded = Accounts.get_settings_for_user!(owner.id, actor: owner)
+    loaded = Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings
     assert loaded.timezone == "America/Los_Angeles"
     assert loaded.target_weight_kg == 70.0
 
     Accounts.update_settings!(loaded, %{target_weight_kg: 72}, actor: owner)
 
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).timezone ==
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings.timezone ==
              "America/Los_Angeles"
 
     Accounts.update_settings!(settings.id, %{timezone: "Etc/UTC"}, actor: owner)
-    loaded = Accounts.get_settings_for_user!(owner.id, actor: owner)
+    loaded = Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings
     assert loaded.timezone == "Etc/UTC"
     assert loaded.target_weight_kg == 72.0
   end
@@ -93,7 +95,8 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
       end
     end
 
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).timezone == "America/Bogota"
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings.timezone ==
+             "America/Bogota"
   end
 
   test "timezone names are no longer checked against IANA by settings actions" do
@@ -102,7 +105,9 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
     assert settings.timezone == "Custom/Zone"
 
     Accounts.update_settings!(settings.id, %{timezone: "Another/Zone"}, actor: owner)
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).timezone == "Another/Zone"
+
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings.timezone ==
+             "Another/Zone"
   end
 
   test "country is no longer accepted as an action input" do
@@ -118,7 +123,8 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
       end)
     end
 
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).timezone == "Etc/UTC"
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings.timezone ==
+             "Etc/UTC"
   end
 
   test "timezone updates retain owner-only authorization" do
@@ -138,7 +144,8 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
       end
     end
 
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).timezone == "Etc/UTC"
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings.timezone ==
+             "Etc/UTC"
   end
 
   test "each user can have only one settings record" do
@@ -149,7 +156,8 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
       match?(%Ash.Error.Changes.InvalidAttribute{field: :user_id}, error)
     end)
 
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).id == settings.id
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings.id ==
+             settings.id
   end
 
   test "settings cannot be read or updated by another user or an anonymous caller" do
@@ -158,7 +166,7 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
 
     for actor <- [user(), nil] do
       assert_has_error(
-        Accounts.get_settings_for_user(owner.id, actor: actor),
+        Accounts.get_user_by_id(owner.id, actor: actor, load: :settings),
         Ash.Error.Invalid,
         &match?(%Ash.Error.Query.NotFound{}, &1)
       )
@@ -173,7 +181,8 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
       end
     end
 
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).target_weight_kg == 70.0
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings.target_weight_kg ==
+             70.0
   end
 
   test "creation derives ownership from the actor" do
@@ -214,7 +223,7 @@ defmodule OpenTrack.Accounts.User.SettingsTest do
       end
     end
 
-    loaded = Accounts.get_settings_for_user!(owner.id, actor: owner)
+    loaded = Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings
     assert loaded.target_weight_kg == 70.0
     assert loaded.target_body_fat_percent == 20.0
   end

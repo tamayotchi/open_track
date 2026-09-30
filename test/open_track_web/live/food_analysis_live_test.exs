@@ -25,7 +25,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     assert has_element?(view, "#food-ai-notice", "embedded metadata")
     save_photo(view)
     assert_patch(view, "/app")
-    [photo] = Food.list_food_photos!(actor: owner, page: [limit: 24]).results
+    [photo] = Food.list_food_photos!(owner.id, page: [limit: 24]).results
     assert has_element?(view, "#photos-#{photo.id}[data-analysis-status='not_analyzed']")
 
     assert %{success: 1} = drain_analysis()
@@ -56,7 +56,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     end)
 
     save_photo(view)
-    [photo] = Food.list_food_photos!(actor: owner, page: [limit: 24]).results
+    [photo] = Food.list_food_photos!(owner.id, page: [limit: 24]).results
     assert %{success: 1} = drain_analysis()
     assert_analysis(photo.id, owner, :completed)
     assert_receive {:model, "openrouter:google/gemini-3.1-flash-lite"}
@@ -66,7 +66,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     stub_prediction()
     {:ok, view, _} = live(conn, "/app/add")
     save_photo(view)
-    [photo] = Food.list_food_photos!(actor: owner, page: [limit: 24]).results
+    [photo] = Food.list_food_photos!(owner.id, page: [limit: 24]).results
     GenServer.stop(view.pid, :normal)
 
     assert %{success: 1} = drain_analysis()

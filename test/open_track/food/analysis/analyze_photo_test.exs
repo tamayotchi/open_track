@@ -35,6 +35,9 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
     trigger = AshOban.Info.oban_trigger(Food.FoodPhoto, :process_analysis)
     refute trigger.scheduler_cron
     refute trigger.lock_for_update?
+    assert trigger.read_action == :read
+    assert trigger.worker_read_action == :read
+    assert Ash.Resource.Info.action(Food.FoodPhoto, :read).pagination.keyset?
     assert trigger.default_actor == %{role: :food_analysis}
     assert Oban.config().engine == Oban.Engines.Lite
     assert Application.fetch_env!(:open_track, Oban)[:queues] == [food_analysis: 10]
@@ -72,7 +75,7 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
     end
 
     refute_enqueued(worker: Worker)
-    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
   end
 
   test "provider errors retry, remain pending until exhaustion, and persist only safe errors", %{
@@ -243,9 +246,10 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
     assert is_nil(assert_analysis(photo.id, owner, :failed).analysis)
   end
 
-  test "nutrition chart data contains only completed owned photos within the UTC range", %{
-    owner: owner
-  } do
+  test "nutrition chart data contains only the requested user's completed photos within the UTC range",
+       %{
+         owner: owner
+       } do
     for {actor, status, date} <- [
           {owner, :completed, ~U[2026-09-20 12:00:00Z]},
           {owner, :completed, ~U[2026-09-20 13:00:00Z]},
@@ -261,7 +265,7 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
     end
 
     photos =
-      Food.nutrition_chart_data!(~U[2026-09-14 00:00:00Z], ~U[2026-09-21 00:00:00Z], actor: owner)
+      Food.nutrition_chart_data!(owner.id, ~U[2026-09-14 00:00:00Z], ~U[2026-09-21 00:00:00Z])
 
     assert photos |> Enum.map(&DateTime.truncate(&1.inserted_at, :second)) |> Enum.sort(DateTime) ==
              [
@@ -282,7 +286,7 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
     )
 
     assert {:error, _} = Food.create_food_photo(upload(), actor: owner)
-    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
     refute_enqueued(worker: Worker)
     assert TestStorage.list_keys() == []
   end
@@ -292,7 +296,7 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
     Repo.query!("DROP TABLE oban_jobs")
 
     assert_raise Ash.Error.Unknown, fn -> Food.create_food_photo(upload(), actor: owner) end
-    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
     assert TestStorage.list_keys() == []
   end
 

@@ -26,10 +26,11 @@ defmodule OpenTrack.Food.FoodPhoto do
   oban do
     triggers do
       trigger :process_analysis do
+        worker_module_name __MODULE__.AshOban.Worker.ProcessAnalysis
         action :process_analysis
         queue :food_analysis
         scheduler_cron false
-        read_action :journal
+        read_action :read
         worker_read_action :read
         default_actor %{role: :food_analysis}
         lock_for_update? false
@@ -53,11 +54,32 @@ defmodule OpenTrack.Food.FoodPhoto do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:destroy]
+
+    # Owner/internal reads also support AshOban's keyset-based trigger reads.
+    read :read do
+      primary? true
+      pagination keyset?: true, required?: false
+    end
 
     read :journal do
+      argument :user_id, :uuid, allow_nil?: false
+      filter expr(user_id == ^arg(:user_id))
       prepare build(sort: [inserted_at: :desc])
       pagination keyset?: true
+    end
+
+    read :nutrition_chart_data do
+      argument :user_id, :uuid, allow_nil?: false
+      argument :from, :utc_datetime_usec, allow_nil?: false
+      argument :until, :utc_datetime_usec, allow_nil?: false
+
+      filter expr(
+               user_id == ^arg(:user_id) and analysis_status == :completed and
+                 inserted_at >= ^arg(:from) and inserted_at < ^arg(:until)
+             )
+
+      prepare build(select: [:analysis, :inserted_at])
     end
 
     create :create do
@@ -84,18 +106,6 @@ defmodule OpenTrack.Food.FoodPhoto do
       change set_attribute(:analysis, nil)
       change set_attribute(:analysis_status, :failed)
     end
-
-    read :nutrition_chart_data do
-      argument :from, :utc_datetime_usec, allow_nil?: false
-      argument :until, :utc_datetime_usec, allow_nil?: false
-
-      filter expr(
-               analysis_status == :completed and inserted_at >= ^arg(:from) and
-                 inserted_at < ^arg(:until)
-             )
-
-      prepare build(select: [:analysis, :inserted_at])
-    end
   end
 
   policies do
@@ -111,7 +121,19 @@ defmodule OpenTrack.Food.FoodPhoto do
       authorize_if relating_to_actor(:user)
     end
 
-    policy action_type([:read, :update, :destroy]) do
+    policy action([:journal, :nutrition_chart_data]) do
+      authorize_if always()
+    end
+
+    policy action([
+             :read,
+             :destroy,
+             :process_analysis,
+             :fail_analysis,
+             :attach_image,
+             :detach_image,
+             :purge_image
+           ]) do
       authorize_if expr(user_id == ^actor(:id))
     end
   end

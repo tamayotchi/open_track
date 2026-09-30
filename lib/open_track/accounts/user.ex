@@ -1,5 +1,5 @@
 defmodule OpenTrack.Accounts.User do
-  @moduledoc "User accounts with password authentication and private avatars."
+  @moduledoc "User accounts with password authentication and public nickname profiles."
 
   use Ash.Resource,
     otp_app: :open_track,
@@ -43,6 +43,13 @@ defmodule OpenTrack.Accounts.User do
 
   actions do
     defaults [:read]
+
+    read :public_profile do
+      argument :nickname, :ci_string, allow_nil?: false
+      get? true
+      filter expr(nickname == ^arg(:nickname))
+      prepare build(select: [:id, :nickname], load: [:public_settings])
+    end
 
     read :get_by_subject do
       description "Get a user by the subject claim in a JWT"
@@ -93,6 +100,10 @@ defmodule OpenTrack.Accounts.User do
       authorize_if always()
     end
 
+    policy action(:public_profile) do
+      authorize_if always()
+    end
+
     policy action([
              :read,
              :change_password,
@@ -132,6 +143,16 @@ defmodule OpenTrack.Accounts.User do
 
   relationships do
     has_one :settings, OpenTrack.Accounts.User.Settings
+  end
+
+  calculations do
+    calculate :public_settings,
+              :map,
+              expr(%{
+                target_weight_kg: settings.target_weight_kg,
+                target_body_fat_percent: settings.target_body_fat_percent,
+                timezone: settings.timezone
+              })
   end
 
   identities do

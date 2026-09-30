@@ -13,14 +13,13 @@ defmodule OpenTrack.Accounts do
       define :sign_in, action: :sign_in_with_password
       define :change_user_password, action: :change_password
       define :get_user_by_id, action: :read, get_by: [:id]
+      define :get_public_profile, action: :public_profile, args: [:nickname]
       define :get_user_by_email, action: :get_by_email, args: [:email]
       define :update_user_avatar, action: :update_avatar, args: [:uploaded_avatar]
       define :remove_user_avatar, action: :purge_avatar
     end
 
     resource OpenTrack.Accounts.User.Settings do
-      define :get_settings_for_user, action: :read, get_by: [:user_id]
-
       define :create_settings, action: :create
       define :update_settings, action: :update
     end

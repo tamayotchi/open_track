@@ -10,6 +10,15 @@ defmodule OpenTrackWeb.LiveUserAuth do
   import Phoenix.LiveView, only: [redirect: 2, attach_hook: 4]
   alias OpenTrackWeb.UserAuth
 
+  def on_mount(:optional, _params, session, socket) do
+    user = UserAuth.user_from_session(session)
+
+    {:cont,
+     socket
+     |> assign(:current_user, user)
+     |> assign(:current_scope, if(user, do: %{actor: user}))}
+  end
+
   def on_mount(:required, _params, session, socket) do
     user = UserAuth.user_from_session(session)
 

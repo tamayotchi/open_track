@@ -25,7 +25,9 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
     view |> form("#timezone-form", preferences: %{timezone: "America/Bogota"}) |> render_change()
     view |> form("#timezone-form", preferences: %{timezone: "America/Bogota"}) |> render_submit()
     assert has_element?(view, "#flash-info", "Timezone preferences saved.")
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).timezone == "America/Bogota"
+
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :public_settings).public_settings.timezone ==
+             "America/Bogota"
 
     {:ok, reloaded, _} = live(conn, "/app/account")
 
@@ -36,7 +38,10 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
 
     # Saving targets after timezone preferences updates the same record.
     reloaded |> form("#targets-form", targets: %{target_weight_kg: "70"}) |> render_submit()
-    settings = Accounts.get_settings_for_user!(owner.id, actor: owner)
+
+    settings =
+      Accounts.get_user_by_id!(owner.id, actor: owner, load: :public_settings).public_settings
+
     assert settings.target_weight_kg == 70.0
     assert settings.timezone == "America/Bogota"
   end
@@ -54,7 +59,9 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
 
     refute has_element?(view, "#timezone-form [role='alert']")
 
-    settings = Accounts.get_settings_for_user!(owner.id, actor: owner)
+    settings =
+      Accounts.get_user_by_id!(owner.id, actor: owner, load: :public_settings).public_settings
+
     assert settings.timezone == "America/Los_Angeles"
     assert settings.target_weight_kg == 72.0
 
@@ -66,7 +73,10 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
            )
 
     reloaded |> form("#timezone-form", preferences: %{timezone: "Etc/UTC"}) |> render_submit()
-    settings = Accounts.get_settings_for_user!(owner.id, actor: owner)
+
+    settings =
+      Accounts.get_user_by_id!(owner.id, actor: owner, load: :public_settings).public_settings
+
     assert settings.timezone == "Etc/UTC"
     assert settings.target_weight_kg == 72.0
   end
@@ -83,7 +93,9 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
       assert has_element?(view, "#timezone-form [role='alert']")
       render_submit(view, "save-timezone", %{"preferences" => %{"timezone" => zone}})
       assert has_element?(view, "#timezone-form [role='alert']")
-      assert Accounts.get_settings_for_user!(owner.id, actor: owner).timezone == "America/Bogota"
+
+      assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :public_settings).public_settings.timezone ==
+               "America/Bogota"
     end
   end
 end

@@ -40,7 +40,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     assert has_element?(view, "#photo-count", "1")
 
     assert [photo] =
-             Food.list_food_photos!(actor: owner, page: [limit: 24], load: :image_url).results
+             Food.list_food_photos!(owner.id, page: [limit: 24], load: :image_url).results
 
     ExUnit.CaptureLog.capture_log(fn -> drain_analysis() end)
     assert_analysis(photo.id, owner, :failed)
@@ -54,7 +54,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     refute has_element?(reloaded, "#food_log-#{photo.id}")
     assert has_element?(reloaded, "#photo-count", "0")
     assert has_element?(reloaded, "#empty-journal")
-    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
   end
 
   test "another user's photos stay hidden and forged deletion events fail", %{conn: conn} do
@@ -112,7 +112,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     preflight_upload(invalid)
     assert has_element?(view, ".upload-error[role='alert']", "JPG, PNG, or WebP")
     render_submit(view, "save-photo", %{})
-    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
     view |> element("button[phx-click='cancel-upload']") |> render_click()
 
     oversized =
@@ -123,7 +123,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     preflight_upload(oversized)
     assert has_element?(view, ".upload-error[role='alert']", "smaller than 8 MB")
     render_submit(view, "save-photo", %{})
-    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
   end
 
   test "the LiveView requests 24 photos per page and appends both journal views", %{
@@ -134,7 +134,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     for _ <- 1..49, do: create_unanalyzed_photo(owner, file)
 
     expected_ids =
-      Food.list_food_photos!(actor: owner, page: [limit: 49]).results |> Enum.map(& &1.id)
+      Food.list_food_photos!(owner.id, page: [limit: 49]).results |> Enum.map(& &1.id)
 
     {:ok, view, _} = live(conn, "/app")
     assert has_element?(view, "#photo-count", "49")

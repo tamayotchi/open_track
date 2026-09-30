@@ -23,13 +23,17 @@ defmodule OpenTrackWeb.AccountLiveTest do
     assert has_element?(reloaded, "#targets-form [role='alert']")
     reloaded |> form("#targets-form", targets: %{target_weight_kg: "201"}) |> render_submit()
     assert has_element?(reloaded, "#targets-form [role='alert']")
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).target_weight_kg == 70.5
+
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :public_settings).public_settings.target_weight_kg ==
+             70.5
 
     reloaded
     |> form("#targets-form", targets: %{target_weight_kg: "", target_body_fat_percent: ""})
     |> render_submit()
 
-    settings = Accounts.get_settings_for_user!(owner.id, actor: owner)
+    settings =
+      Accounts.get_user_by_id!(owner.id, actor: owner, load: :public_settings).public_settings
+
     assert is_nil(settings.target_weight_kg)
     assert is_nil(settings.target_body_fat_percent)
     {:ok, cleared, _} = live(conn, "/app/account")
@@ -71,7 +75,8 @@ defmodule OpenTrackWeb.AccountLiveTest do
     |> form("#targets-form", targets: %{target_weight_kg: "70"})
     |> render_submit()
 
-    assert Accounts.get_settings_for_user!(owner.id, actor: owner).target_weight_kg == 70.0
+    assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :public_settings).public_settings.target_weight_kg ==
+             70.0
   end
 
   test "password forms require the latest password even in an already-open tab", %{conn: conn} do
@@ -139,9 +144,7 @@ defmodule OpenTrackWeb.AccountLiveTest do
     render_submit(view, "save-targets", %{"targets" => %{"target_weight_kg" => "70"}})
     assert_redirect(view, "/users/log-in")
 
-    assert is_nil(
-             Accounts.get_settings_for_user!(owner.id, actor: owner, not_found_error?: false)
-           )
+    assert is_nil(Accounts.get_user_by_id!(owner.id, actor: owner, load: :settings).settings)
   end
 
   test "already-mounted pages reject navigation after session revocation", %{conn: conn} do

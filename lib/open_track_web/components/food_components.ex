@@ -9,6 +9,8 @@ defmodule OpenTrackWeb.FoodComponents do
 
   attr :timezone, :string, default: "Etc/UTC"
 
+  attr :editable, :boolean, default: true
+
   def photo_card(assigns) do
     assigns =
       assign(
@@ -26,6 +28,7 @@ defmodule OpenTrackWeb.FoodComponents do
           {Calendar.strftime(@uploaded_at, "%b %-d, %Y · %H:%M %Z")}
         </time>
         <button
+          :if={@editable}
           type="button"
           phx-click="delete-photo"
           phx-value-id={@photo.id}
@@ -87,6 +90,8 @@ defmodule OpenTrackWeb.FoodComponents do
 
   attr :timezone, :string, default: "Etc/UTC"
 
+  attr :editable, :boolean, default: true
+
   def food_log_row(assigns) do
     assigns =
       assign(
@@ -112,6 +117,7 @@ defmodule OpenTrackWeb.FoodComponents do
           ~{number(@photo.analysis["total_protein_g"])} g protein · AI estimate
         </span>
         <button
+          :if={@editable}
           type="button"
           phx-click="delete-photo"
           phx-value-id={@photo.id}

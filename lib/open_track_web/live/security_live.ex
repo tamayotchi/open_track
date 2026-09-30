@@ -127,7 +127,7 @@ defmodule OpenTrackWeb.SecurityLive do
             <h2>Your account</h2>
             <p>{@current_user.email}</p>
             <p class="settings-small-print">
-              Use a unique password to keep your private journal safe.
+              Use a unique password to keep your account safe.
             </p>
           </aside>
         </div>

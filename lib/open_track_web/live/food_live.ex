@@ -5,14 +5,24 @@ defmodule OpenTrackWeb.FoodLive do
   alias OpenTrackWeb.{FoodComponents, NutritionChart, NutritionComponents, Timezones}
 
   @impl true
+  def mount(_params, _session, %{assigns: %{live_action: :profile}} = socket) do
+    {:ok, assign(socket, public_profile?: true)}
+  end
+
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
-    settings = Accounts.get_settings_for_user!(user.id, actor: user, not_found_error?: false)
-    timezone = if settings, do: settings.timezone, else: Timezones.utc()
+
+    settings =
+      Accounts.get_user_by_id!(user.id, actor: user, load: :public_settings).public_settings
+
+    timezone = settings.timezone || Timezones.utc()
 
     {:ok,
      socket
      |> assign(
+       public_profile?: false,
+       profile: nil,
+       journal_user_id: user.id,
        form: Food.form_to_create_food_photo(actor: user, as: "photo") |> to_form(),
        view_mode: :cards,
        today: Timezones.today(timezone),
@@ -32,6 +42,15 @@ defmodule OpenTrackWeb.FoodLive do
   end
 
   @impl true
+  def handle_params(
+        %{"nickname" => nickname},
+        _uri,
+        %{assigns: %{live_action: :profile}} = socket
+      ) do
+    profile = Accounts.get_public_profile!(nickname, not_found_error?: false, load: :avatar_url)
+    {:noreply, load_public_profile(socket, profile)}
+  end
+
   def handle_params(_params, _uri, socket) do
     {:noreply,
      assign(socket,
@@ -40,6 +59,17 @@ defmodule OpenTrackWeb.FoodLive do
   end
 
   @impl true
+  def handle_event(_event, _params, %{assigns: %{public_profile?: true, profile: nil}} = socket) do
+    {:noreply, socket}
+  end
+
+  # Public profiles never accept mutation events, even if a visitor forges one
+  # or the signed-in visitor is the profile owner.
+  def handle_event(event, _params, %{assigns: %{public_profile?: true}} = socket)
+      when event not in ["set-view", "load-more", "range"] do
+    {:noreply, socket}
+  end
+
   def handle_event("set-view", %{"mode" => mode}, socket) when mode in ["cards", "table"] do
     {:noreply, assign(socket, view_mode: if(mode == "cards", do: :cards, else: :table))}
   end
@@ -83,6 +113,41 @@ defmodule OpenTrackWeb.FoodLive do
     {:noreply, socket |> assign(days: NutritionChart.days(days)) |> load_nutrition()}
   end
 
+  defp load_public_profile(socket, nil) do
+    socket
+    |> assign(
+      profile: nil,
+      journal_user_id: nil,
+      page_title: "Profile not found",
+      settings: nil,
+      entries: [],
+      photo_count: 0,
+      more?: false,
+      after: nil
+    )
+    |> stream(:photos, [], reset: true)
+    |> stream(:food_log, [], reset: true)
+  end
+
+  defp load_public_profile(socket, profile) do
+    settings = profile.public_settings
+    timezone = settings.timezone || Timezones.utc()
+
+    socket
+    |> assign(
+      profile: profile,
+      journal_user_id: profile.id,
+      page_title: "#{profile.nickname}'s journal",
+      view_mode: :cards,
+      timezone: timezone,
+      timezone_label: Timezones.label(timezone),
+      days: 7,
+      settings: settings
+    )
+    |> load_photos()
+    |> load_nutrition()
+  end
+
   defp save_photo(socket) do
     user = socket.assigns.current_user
 
@@ -120,8 +185,7 @@ defmodule OpenTrackWeb.FoodLive do
     pagination = if after_key, do: Keyword.put(pagination, :after, after_key), else: pagination
 
     page =
-      Food.list_food_photos!(
-        actor: socket.assigns.current_user,
+      Food.list_food_photos!(socket.assigns.journal_user_id,
         page: pagination,
         load: :image_url
       )
@@ -142,7 +206,7 @@ defmodule OpenTrackWeb.FoodLive do
     {from, until} = Timezones.utc_range(Date.add(today, 1 - socket.assigns.days), today, timezone)
 
     entries =
-      Food.nutrition_chart_data!(from, until, actor: socket.assigns.current_user)
+      Food.nutrition_chart_data!(socket.assigns.journal_user_id, from, until)
       |> Enum.reduce(%{}, &add_photo_nutrition(&1, &2, timezone))
       |> Enum.map(fn {date, totals} -> Map.put(totals, :date, date) end)
       |> Enum.sort_by(& &1.date, Date)

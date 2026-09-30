@@ -1,17 +1,23 @@
 defmodule OpenTrackWeb.NutritionComponents do
-  @moduledoc "Accessible charts of the signed-in user's recorded values."
+  @moduledoc "Accessible charts of a journal's recorded values."
   use OpenTrackWeb, :html
 
   alias OpenTrackWeb.NutritionChart
 
   attr :settings, :any, default: nil
+  attr :editable, :boolean, default: true
 
   def targets_summary(assigns) do
     ~H"""
     <section id="targets-summary" class="targets-summary" aria-labelledby="targets-summary-title">
       <div class="section-heading">
-        <h2 id="targets-summary-title">Your targets</h2>
-        <.link navigate={~p"/app/account#targets"} class="text-button" id="edit-targets">
+        <h2 id="targets-summary-title">{if @editable, do: "Your targets", else: "Targets"}</h2>
+        <.link
+          :if={@editable}
+          navigate={~p"/app/account#targets"}
+          class="text-button"
+          id="edit-targets"
+        >
           Edit targets <.icon name="hero-pencil-square" class="size-4" />
         </.link>
       </div>
@@ -33,7 +39,7 @@ defmodule OpenTrackWeb.NutritionComponents do
           </dd>
         </div>
       </dl>
-      <p class="field-help mt-4">Your goals, on your terms. No automatic recommendations.</p>
+      <p class="field-help mt-4">Personal goals. No automatic recommendations.</p>
     </section>
     """
   end
@@ -98,7 +104,7 @@ defmodule OpenTrackWeb.NutritionComponents do
             {if @metric.key in [:calories, :protein],
               do:
                 "AI photo estimates summed by upload date in #{@timezone_label}, not measured intake.",
-              else: "Your recorded measurements."} Values are in the table below. Unrecorded days are left blank.
+              else: "Recorded measurements."} Values are in the table below. Unrecorded days are left blank.
           </desc>
           <g :for={tick <- @plot.ticks} class="chart-grid-line">
             <line x1="42" x2={@plot.width - 12} y1={tick.y} y2={tick.y} />
@@ -143,7 +149,7 @@ defmodule OpenTrackWeb.NutritionComponents do
         {Calendar.strftime(@plot.first_date, "%b %-d, %Y")} – {Calendar.strftime(
           @plot.last_date,
           "%b %-d, %Y"
-        )} · Your history
+        )} · Journal history
       </p>
       <p :if={@expanded && @days > 7} class="field-help mb-4">
         Scroll the chart to see every day, or open the values below.
@@ -157,7 +163,7 @@ defmodule OpenTrackWeb.NutritionComponents do
           aria-label={"#{@metric.title} recorded values"}
         >
           <table>
-            <caption class="sr-only">Your recorded {@metric.title} values</caption>
+            <caption class="sr-only">Recorded {@metric.title} values</caption>
             <thead>
               <tr>
                 <th scope="col">Date</th>

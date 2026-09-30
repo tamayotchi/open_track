@@ -34,6 +34,11 @@ defmodule OpenTrackWeb.Router do
       live "/app/account", AccountLive, :index
       live "/app/account/settings", SecurityLive, :index
     end
+
+    live_session :public_profiles,
+      on_mount: [{OpenTrackWeb.LiveUserAuth, :optional}] do
+      live "/app/profile/:nickname", FoodLive, :profile
+    end
   end
 
   # Enable LiveDashboard in development

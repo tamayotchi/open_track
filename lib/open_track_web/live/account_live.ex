@@ -7,13 +7,18 @@ defmodule OpenTrackWeb.AccountLive do
   @impl true
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
-    settings = Accounts.get_settings_for_user!(user.id, actor: user, not_found_error?: false)
+
+    profile =
+      Accounts.get_user_by_id!(user.id, actor: user, load: [:settings, :avatar, :avatar_url])
 
     {:ok,
      socket
-     |> assign(page_title: "Your account", timezone_options: Timezones.timezone_options())
-     |> assign_settings_forms(settings)
-     |> load_profile()
+     |> assign(
+       page_title: "Your account",
+       timezone_options: Timezones.timezone_options(),
+       profile: profile
+     )
+     |> assign_settings_forms(profile.settings)
      |> allow_upload(:avatar,
        accept: ~w(.jpg .jpeg .png .webp),
        max_entries: 1,
@@ -234,7 +239,7 @@ defmodule OpenTrackWeb.AccountLive do
               phx-debounce="blur"
             />
             <p class="field-help">
-              Your targets are private and can be updated or cleared at any time.
+              Your targets are visible on your public profile and can be updated or cleared at any time.
             </p>
             <button
               id="save-targets"
