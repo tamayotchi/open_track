@@ -5,7 +5,8 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
   import OpenTrack.AnalysisFixtures
   alias OpenTrack.FakeReqLLM
   alias OpenTrack.Food
-  alias OpenTrack.Food.Analysis.Notifier
+
+  @moduletag :capture_log
 
   setup %{conn: conn} do
     configure_ai()
@@ -17,31 +18,18 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     conn: conn,
     owner: owner
   } do
-    parent = self()
-
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, {:started, self()})
-
-      receive do
-        :finish -> response()
-      end
-    end)
-
+    stub_prediction()
     {:ok, view, _} = live(conn, "/app/add")
     assert has_element?(view, "#food-ai-notice", "OpenRouter")
-
     assert has_element?(view, "#food-ai-notice", "google/gemini-3.1-flash-lite")
-
     assert has_element?(view, "#food-ai-notice", "embedded metadata")
     save_photo(view)
     assert_patch(view, "/app")
-    assert_receive {:started, task}, 2_000
     [photo] = Food.list_food_photos!(actor: owner, page: [limit: 24]).results
-
     assert has_element?(view, "#photos-#{photo.id}[data-analysis-status='not_analyzed']")
 
-    send(task, :finish)
-    await_photo(photo.id, owner, :completed)
+    assert %{success: 1} = drain_analysis()
+    assert_analysis(photo.id, owner, :completed)
 
     assert has_element?(view, "#photos-#{photo.id}[data-analysis-status='not_analyzed']")
     refute has_element?(view, "#calories-chart-values tbody tr")
@@ -57,10 +45,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     assert has_element?(view, "#calories-chart", "Not measured intake")
   end
 
-  test "uploads and disclosure use the fixed model", %{
-    conn: conn,
-    owner: owner
-  } do
+  test "uploads and disclosure use the fixed model", %{conn: conn, owner: owner} do
     {:ok, view, _} = live(conn, "/app/add")
     assert has_element?(view, "#food-ai-notice", "google/gemini-3.1-flash-lite")
     parent = self()
@@ -72,28 +57,20 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
 
     save_photo(view)
     [photo] = Food.list_food_photos!(actor: owner, page: [limit: 24]).results
-    await_photo(photo.id, owner, :completed)
+    assert %{success: 1} = drain_analysis()
+    assert_analysis(photo.id, owner, :completed)
     assert_receive {:model, "openrouter:google/gemini-3.1-flash-lite"}
   end
 
-  test "closing the page does not cancel an authorized analysis", %{conn: conn, owner: owner} do
-    parent = self()
-
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, {:started, self()})
-
-      receive do
-        :finish -> response()
-      end
-    end)
-
+  test "closing the page does not cancel queued analysis", %{conn: conn, owner: owner} do
+    stub_prediction()
     {:ok, view, _} = live(conn, "/app/add")
     save_photo(view)
-    assert_receive {:started, task}, 2_000
     [photo] = Food.list_food_photos!(actor: owner, page: [limit: 24]).results
     GenServer.stop(view.pid, :normal)
-    send(task, :finish)
-    await_photo(photo.id, owner, :completed)
+
+    assert %{success: 1} = drain_analysis()
+    assert_analysis(photo.id, owner, :completed)
     {:ok, reloaded, _} = live(conn, "/app")
     assert has_element?(reloaded, "#photos-#{photo.id}", "520 kcal")
   end
@@ -110,8 +87,9 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     assert length(ids) == 48
     id = List.last(ids) |> String.replace_prefix("photos-", "")
     stub_prediction(prediction(%{"description" => "<script>alert('bad')</script>"}))
-    assert :ok = Notifier.notify(%{data: %{id: id}, actor: owner})
-    await_photo(id, owner, :completed)
+
+    assert %{success: 49} = drain_analysis()
+    assert_analysis(id, owner, :completed)
     assert has_element?(view, "#photos-#{id}[data-analysis-status='not_analyzed']")
     {:ok, view, _} = live(conn, "/app")
     view |> element("#load-more") |> render_click()
@@ -131,7 +109,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
   } do
     stub_prediction()
     photo = create_analyzed_photo(owner)
-    await_photo(photo.id, owner, :completed)
+    assert photo.analysis_status == :completed
     {:ok, view, _} = live(conn, "/app")
     {:ok, other_tab, _} = live(conn, "/app")
     view |> element("#photos-#{photo.id} button[phx-click='delete-photo']") |> render_click()
@@ -149,7 +127,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
   test "failure and non-food states never fabricate nutrition", %{conn: conn, owner: owner} do
     FakeReqLLM.stub(fn _, _, _, _ -> {:error, "private-provider-error"} end)
     failed = create_analyzed_photo(owner)
-    await_photo(failed.id, owner, :failed)
+    assert failed.analysis_status == :failed
 
     stub_prediction(
       prediction(%{
@@ -163,7 +141,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     )
 
     nonfood = create_analyzed_photo(owner)
-    await_photo(nonfood.id, owner, :completed)
+    assert nonfood.analysis_status == :completed
     {:ok, view, _} = live(conn, "/app")
     assert has_element?(view, "#photos-#{failed.id}", "Analysis failed")
     assert has_element?(view, "#photos-#{nonfood.id}", "No food identified")

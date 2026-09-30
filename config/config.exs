@@ -7,6 +7,15 @@
 # General application configuration
 import Config
 
+config :open_track, Oban,
+  engine: Oban.Engines.Lite,
+  notifier: Oban.Notifiers.PG,
+  queues: [food_analysis: 10],
+  lifeline: [rescue_after: {2, :hours}],
+  pruner: [max_age: {1, :day}],
+  repo: OpenTrack.Repo,
+  plugins: [{Oban.Plugins.Cron, []}]
+
 # Keys come only from runtime configuration, never automatic .env discovery.
 # Redact context inspection and disable telemetry payload capture by default.
 config :req_llm,

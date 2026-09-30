@@ -12,9 +12,13 @@ defmodule OpenTrack.Application do
       OpenTrack.Repo,
       {Ecto.Migrator,
        repos: Application.fetch_env!(:open_track, :ecto_repos), skip: skip_migrations?()},
+      {Oban,
+       AshOban.config(
+         Application.fetch_env!(:open_track, :ash_domains),
+         Application.fetch_env!(:open_track, Oban)
+       )},
       {DNSCluster, query: Application.get_env(:open_track, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: OpenTrack.PubSub},
-      {Task.Supervisor, name: OpenTrack.Food.AnalysisTasks, max_children: 2},
       # Start to serve requests, typically the last entry
       OpenTrackWeb.Endpoint,
       {AshAuthentication.Supervisor, [otp_app: :open_track]}

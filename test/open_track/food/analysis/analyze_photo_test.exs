@@ -1,123 +1,83 @@
 defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
   use OpenTrack.DataCase
+  use Oban.Testing, repo: OpenTrack.Repo
+
   import OpenTrack.Fixtures
   import OpenTrack.AnalysisFixtures
-  alias Ash.Notifier.Notification
-  alias Ash.Resource.Info
+
   alias AshStorage.Service.Test, as: TestStorage
   alias OpenTrack.FakeReqLLM
   alias OpenTrack.Food
-  alias OpenTrack.Food.Analysis
+  alias OpenTrack.Food.FoodPhoto.AshOban.Worker.ProcessAnalysis, as: Worker
+
+  @moduletag :capture_log
 
   setup do
     configure_ai()
     %{owner: user()}
   end
 
-  test "analysis is a single prompt-backed action accepting only a photo ID" do
-    refute Info.action(Food.FoodPhoto, :analyze)
-    assert Enum.map(Info.actions(Analysis), & &1.name) == [:analyze]
-
-    action = Info.action(Analysis, :analyze)
-    assert {AshAi.Actions.Prompt, opts} = action.run
-    assert opts[:tools] == false
-    assert opts[:req_llm] == FakeReqLLM
-    assert action.returns == Analysis.Estimate
-    refute action.transaction?
-    assert Enum.map(action.arguments, & &1.name) == [:photo_id]
-  end
-
-  test "analysis returns an estimate without saving and calls AI outside a database transaction",
-       %{
-         owner: owner
-       } do
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      refute OpenTrack.Repo.in_transaction?()
-      response()
-    end)
-
-    photo = create_unanalyzed_photo(owner)
-
-    assert {:ok, %Analysis.Estimate{} = estimate} =
-             Food.analyze_food_photo(photo.id, actor: owner)
-
-    assert estimate.total_calories == 520.0
-    unchanged = Food.get_food_photo!(photo.id, actor: owner)
-    assert unchanged.analysis_status == :not_analyzed
-    assert is_nil(unchanged.analysis)
-  end
-
-  test "callers cannot substitute image bytes for the stored photo", %{owner: owner} do
+  test "upload queues one job containing only identifiers, without running AI", %{owner: owner} do
     parent = self()
-
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, :unexpected_request)
-      response()
-    end)
-
+    FakeReqLLM.stub(fn _, _, _, _ -> send(parent, :unexpected_request) end)
     photo = create_unanalyzed_photo(owner)
 
-    assert {:error, _} =
-             Food.analyze_food_photo(photo.id, %{image: image_bytes(), content_type: "image/png"},
-               actor: owner
-             )
+    assert [job] = all_enqueued(worker: Worker)
+    assert job.queue == "food_analysis"
+    assert job.max_attempts == 3
+    assert job.args["primary_key"] == %{"id" => photo.id}
+    refute Map.has_key?(job.args, "actor")
+    refute inspect(job.args) =~ owner.id
+    refute inspect(job.args) =~ image_bytes()
+    refute inspect(job.args) =~ owner.hashed_password
+    refute_receive :unexpected_request
 
-    assert Food.get_food_photo!(photo.id, actor: owner).analysis_status == :not_analyzed
-    refute_receive :unexpected_request, 30
+    trigger = AshOban.Info.oban_trigger(Food.FoodPhoto, :process_analysis)
+    refute trigger.scheduler_cron
+    refute trigger.lock_for_update?
+    assert trigger.default_actor == %{role: :food_analysis}
+    assert Oban.config().engine == Oban.Engines.Lite
+    assert Application.fetch_env!(:open_track, Oban)[:queues] == [food_analysis: 10]
   end
 
-  test "new uploads persist one validated estimate using the fixed model", %{owner: owner} do
+  test "new uploads save one validated estimate using the fixed model outside transactions", %{
+    owner: owner
+  } do
     parent = self()
 
     FakeReqLLM.stub(fn model, context, _schema, _opts ->
+      refute Repo.in_transaction?()
       send(parent, {:request, model, context})
       response()
     end)
 
-    photo = create_analyzed_photo(owner)
-    completed = await_photo(photo.id, owner, :completed)
+    photo = create_unanalyzed_photo(owner)
+    assert %{success: 1, failure: 0} = drain_analysis()
+    completed = assert_analysis(photo.id, owner, :completed)
     assert completed.analysis == prediction()
+    assert completed.user_id == photo.user_id
+    assert completed.inserted_at == photo.inserted_at
     assert_receive {:request, "openrouter:google/gemini-3.1-flash-lite", context}
 
     [_, %{content: [image]}] = context.messages
     assert image.data == image_bytes()
     refute inspect(context) =~ owner.id
     refute inspect(context) =~ photo.id
-
-    refute_receive {:request, _, _}, 30
+    refute_receive {:request, _, _}
   end
 
-  test "non-owners and anonymous actors cannot analyze or update analysis", %{owner: owner} do
-    photo = create_unanalyzed_photo(owner)
-    estimate = prediction()
-
-    for actor <- [user(), nil] do
-      assert {:error, _} =
-               Food.update_food_analysis(
-                 photo.id,
-                 %{analysis: estimate, analysis_status: :completed},
-                 actor: actor
-               )
-
-      assert {:error, _} =
-               Food.update_food_analysis(
-                 photo.id,
-                 %{analysis: nil, analysis_status: :failed},
-                 actor: actor
-               )
-
-      assert catch_error(Food.analyze_food_photo!(photo.id, actor: actor))
+  test "uploads cannot supply analysis results or status", %{owner: owner} do
+    for attrs <- [%{analysis: prediction()}, %{analysis_status: :completed}] do
+      assert {:error, _} = Food.create_food_photo(upload(), attrs, actor: owner)
     end
 
-    assert Food.get_food_photo!(photo.id, actor: owner).analysis_status == :not_analyzed
-
-    assert {:error, _} = Food.create_food_photo(upload(), %{analysis: prediction()}, actor: owner)
-
-    assert {:error, _} =
-             Food.create_food_photo(upload(), %{analysis_status: :completed}, actor: owner)
+    refute_enqueued(worker: Worker)
+    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
   end
 
-  test "provider failures preserve bytes and do not persist raw errors", %{owner: owner} do
+  test "provider errors retry, remain pending until exhaustion, and persist only safe errors", %{
+    owner: owner
+  } do
     parent = self()
 
     FakeReqLLM.stub(fn _, _, _, _ ->
@@ -125,14 +85,69 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
       {:error, "private-provider-error"}
     end)
 
-    photo = create_analyzed_photo(owner)
-    failed = await_photo(photo.id, owner, :failed)
+    photo = create_unanalyzed_photo(owner)
+    [job] = all_enqueued(worker: Worker)
+    assert %{failure: 1, discard: 0} = drain_analysis(with_recursion: false)
+    assert_analysis(photo.id, owner, :not_analyzed)
+    assert Repo.get!(Oban.Job, job.id).state == "retryable"
+
+    assert %{failure: 1, discard: 1} = drain_analysis()
+    failed = assert_analysis(photo.id, owner, :failed)
     assert is_nil(failed.analysis)
-    assert_receive :attempt
-    refute_receive :attempt, 30
-    refute inspect(failed) =~ "private-provider-error"
+    for _ <- 1..3, do: assert_receive(:attempt)
+    refute_receive :attempt
+
+    saved_job = Repo.get!(Oban.Job, job.id)
+    assert saved_job.state == "discarded"
+    assert saved_job.attempt == 3
+    assert length(saved_job.errors) == 3
+    assert inspect(saved_job.errors) =~ "Food photo analysis failed"
+    refute inspect(saved_job.errors) =~ "private-provider-error"
+    refute inspect(saved_job.errors) =~ image_bytes()
     loaded = Food.get_food_photo!(photo.id, actor: owner, load: [image: :blob])
     assert AshStorage.Operations.download(loaded.image.blob) == {:ok, image_bytes()}
+  end
+
+  test "a transient failure can succeed on a later attempt", %{owner: owner} do
+    FakeReqLLM.stub(fn _, _, _, _ -> {:error, :timeout} end)
+    photo = create_unanalyzed_photo(owner)
+    assert %{failure: 1} = drain_analysis(with_recursion: false)
+    assert_analysis(photo.id, owner, :not_analyzed)
+
+    stub_prediction()
+    assert %{success: 1, failure: 0} = drain_analysis()
+    assert assert_analysis(photo.id, owner, :completed).analysis == prediction()
+  end
+
+  test "raised, thrown, and exit errors fail safely after retries", %{owner: owner} do
+    for outcome <- [:raise, :throw, :exit] do
+      FakeReqLLM.stub(fn _, _, _, _ ->
+        case outcome do
+          :raise -> raise "private-provider-error"
+          :throw -> throw("private-provider-error")
+          :exit -> exit("private-provider-error")
+        end
+      end)
+
+      photo = create_unanalyzed_photo(owner)
+      [job] = all_enqueued(worker: Worker)
+      assert %{discard: 1} = drain_analysis()
+      assert is_nil(assert_analysis(photo.id, owner, :failed).analysis)
+      refute inspect(Repo.get!(Oban.Job, job.id).errors) =~ "private-provider-error"
+    end
+  end
+
+  test "invalid structured results cannot be saved", %{owner: owner} do
+    for estimate <- [
+          prediction(%{"total_calories" => -1}),
+          prediction(%{"total_protein_g" => 10_000}),
+          %{"food_detected" => true}
+        ] do
+      stub_prediction(estimate)
+      photo = create_analyzed_photo(owner)
+      assert photo.analysis_status == :failed
+      assert is_nil(photo.analysis)
+    end
   end
 
   test "non-food completes normally with a non-food result", %{owner: owner} do
@@ -148,144 +163,84 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
     )
 
     photo = create_analyzed_photo(owner)
-    result = await_photo(photo.id, owner, :completed)
-    assert result.analysis["food_detected"] == false
+    assert photo.analysis_status == :completed
+    assert photo.analysis["food_detected"] == false
   end
 
-  test "an invalid AI estimate fails without saving results", %{owner: owner} do
-    stub_prediction(prediction(%{"total_calories" => -1}))
-    photo = create_analyzed_photo(owner)
-    failed = await_photo(photo.id, owner, :failed)
-    assert is_nil(failed.analysis)
+  test "missing stored bytes fail without reaching the provider", %{owner: owner} do
+    parent = self()
+    FakeReqLLM.stub(fn _, _, _, _ -> send(parent, :unexpected_request) end)
+    photo = create_unanalyzed_photo(owner)
+    TestStorage.reset!()
+
+    assert %{discard: 1} = drain_analysis()
+    assert is_nil(assert_analysis(photo.id, owner, :failed).analysis)
+    refute_receive :unexpected_request
   end
 
-  test "analysis forwards stored bytes and MIME metadata without revalidating uploads", %{
+  test "deletion while processing cannot recreate the photo", %{owner: owner} do
+    photo = create_unanalyzed_photo(owner)
+
+    FakeReqLLM.stub(fn _, _, _, _ ->
+      assert :ok = Food.delete_food_photo(photo.id, actor: owner)
+      response()
+    end)
+
+    assert %{cancelled: 1} = drain_analysis()
+    assert Food.get_food_photo!(photo.id, actor: owner, not_found_error?: false) == nil
+    assert TestStorage.list_keys() == []
+  end
+
+  test "duplicate enqueueing creates one pending job but replay runs analysis again", %{
     owner: owner
   } do
-    file = upload()
-
-    for {bytes, type} <- [
-          {"not an image", "image/png"},
-          {image_bytes(), "image/jpeg"},
-          {image_bytes() <> :binary.copy(<<0>>, 8_000_001), "image/png"}
-        ] do
-      FakeReqLLM.stub(fn _model, context, _schema, _opts ->
-        [_, %{content: [image]}] = context.messages
-        assert image.data == bytes
-        assert image.media_type == type
-        response()
-      end)
-
-      File.write!(file.path, bytes)
-      photo = create_unanalyzed_photo(owner, %{file | content_type: type})
-      result = Food.analyze_food_photo(photo.id, actor: owner)
-
-      assert match?({:ok, %{total_calories: 520.0}}, result),
-             "Could not forward #{byte_size(bytes)} bytes with type #{type}"
-
-      assert Food.get_food_photo!(photo.id, actor: owner).analysis_status == :not_analyzed
-    end
-  end
-
-  test "missing stored bytes fail analysis without reaching the provider", %{owner: owner} do
     parent = self()
 
     FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, :unexpected_request)
+      send(parent, :attempt)
       response()
     end)
 
     photo = create_unanalyzed_photo(owner)
-    TestStorage.reset!()
 
-    assert :ok = Analysis.Notifier.notify(%Notification{data: photo, actor: owner})
-    failed = await_photo(photo.id, owner, :failed)
-    assert is_nil(failed.analysis)
-    refute_receive :unexpected_request, 30
-  end
-
-  test "non-owners and anonymous actors cannot interfere with an in-flight analysis", %{
-    owner: owner
-  } do
-    parent = self()
-
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, {:started, self()})
-
-      receive do
-        :finish -> response()
-      end
-    end)
-
-    photo = create_analyzed_photo(owner)
-    assert_receive {:started, task}, 2_000
-
-    for actor <- [user(), nil] do
-      assert catch_error(Food.analyze_food_photo!(photo.id, actor: actor))
+    for _ <- 1..3 do
+      assert %Oban.Job{conflict?: true} =
+               AshOban.run_trigger(photo, :process_analysis, actor: owner)
     end
 
-    assert Food.get_food_photo!(photo.id, actor: owner).analysis_status == :not_analyzed
-    refute_receive {:started, _}, 30
-    send(task, :finish)
-    await_photo(photo.id, owner, :completed)
-  end
+    assert [job] = all_enqueued(worker: Worker)
+    assert %{success: 1} = drain_analysis()
+    assert_receive :attempt
 
-  test "deletion while processing cannot recreate the photo", %{owner: owner} do
-    parent = self()
+    replacement = prediction(%{"total_calories" => 650})
 
     FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, {:started, self()})
-
-      receive do
-        :finish -> response()
-      end
+      send(parent, :attempt)
+      response(replacement)
     end)
 
-    photo = create_analyzed_photo(owner)
-    assert_receive {:started, task}, 2_000
-    monitor = Process.monitor(task)
-    assert :ok = Food.delete_food_photo(photo.id, actor: owner)
-    send(task, :finish)
-    assert_receive {:DOWN, ^monitor, :process, ^task, _}, 2_000
-    assert Food.get_food_photo!(photo.id, actor: owner, not_found_error?: false) == nil
+    assert {:ok, _} = perform_job(Worker, job.args)
+    assert_receive :attempt
+    assert assert_analysis(photo.id, owner, :completed).analysis == replacement
+    refute_receive :attempt
   end
 
-  test "background analysis replaces results regardless of the previous status", %{owner: owner} do
-    updated_estimate = prediction(%{"total_calories" => 650})
-    stub_prediction(updated_estimate)
+  test "queued analysis runs for a failed photo", %{owner: owner} do
+    photo = create_unanalyzed_photo(owner)
+    Ash.Seed.update!(photo, %{analysis_status: :failed})
 
-    for status <- [:not_analyzed, :completed, :failed] do
-      photo =
-        create_unanalyzed_photo(owner)
-        |> Ash.Seed.update!(%{analysis_status: status, analysis: prediction()})
-
-      assert :ok = Analysis.Notifier.notify(%Notification{data: photo, actor: owner})
-
-      eventually(fn ->
-        Food.get_food_photo!(photo.id, actor: owner).analysis == updated_estimate
-      end)
-
-      completed = Food.get_food_photo!(photo.id, actor: owner)
-      assert completed.analysis_status == :completed
-      assert completed.analysis == updated_estimate
-    end
+    stub_prediction()
+    assert %{success: 1} = drain_analysis()
+    assert assert_analysis(photo.id, owner, :completed).analysis == prediction()
   end
 
-  test "a failed reanalysis clears the previous estimate without deleting the photo", %{
-    owner: owner
-  } do
-    photo =
-      create_unanalyzed_photo(owner)
-      |> Ash.Seed.update!(%{analysis_status: :completed, analysis: prediction()})
+  test "exhausted retries clear previous results regardless of photo status", %{owner: owner} do
+    photo = create_unanalyzed_photo(owner)
+    Ash.Seed.update!(photo, %{analysis_status: :completed, analysis: prediction()})
+    FakeReqLLM.stub(fn _, _, _, _ -> {:error, :timeout} end)
 
-    FakeReqLLM.stub(fn _, _, _, _ -> {:error, "Provider unavailable"} end)
-    assert :ok = Analysis.Notifier.notify(%Notification{data: photo, actor: owner})
-    await_photo(photo.id, owner, :failed)
-
-    failed = Food.get_food_photo!(photo.id, actor: owner, load: [image: :blob])
-    assert failed.analysis_status == :failed
-    assert is_nil(failed.analysis)
-    assert AshStorage.Operations.download(failed.image.blob) == {:ok, image_bytes()}
+    assert %{discard: 1} = drain_analysis()
+    assert is_nil(assert_analysis(photo.id, owner, :failed).analysis)
   end
 
   test "nutrition chart data contains only completed owned photos within the UTC range", %{
@@ -318,13 +273,7 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
     assert Enum.all?(photos, &(&1.analysis == prediction()))
   end
 
-  test "a generation timeout marks analysis failed", %{owner: owner} do
-    FakeReqLLM.stub(fn _, _, _, _ -> {:error, :timeout} end)
-    photo = create_analyzed_photo(owner)
-    assert is_nil(await_photo(photo.id, owner, :failed).analysis)
-  end
-
-  test "storage failure never starts an AI request", %{owner: owner} do
+  test "storage failure rolls back both the photo and the queued job", %{owner: owner} do
     previous = Application.fetch_env!(:open_track, Food.FoodPhoto)
     on_exit(fn -> Application.put_env(:open_track, Food.FoodPhoto, previous) end)
 
@@ -332,137 +281,66 @@ defmodule OpenTrack.Food.Analysis.AnalyzePhotoTest do
       storage: [service: {OpenTrack.UnavailableStorage, []}]
     )
 
-    parent = self()
-
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, :unexpected_request)
-      response()
-    end)
-
     assert {:error, _} = Food.create_food_photo(upload(), actor: owner)
-
     assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
-    refute_receive :unexpected_request, 30
+    refute_enqueued(worker: Worker)
+    assert TestStorage.list_keys() == []
   end
 
-  test "the notifier uses the supplied actor for analysis and task-start failures", %{
-    owner: owner
-  } do
+  test "enqueue failure rolls back creation before uploading any bytes", %{owner: owner} do
+    # An infrastructure failure, inside the sandbox so the table is restored on exit.
+    Repo.query!("DROP TABLE oban_jobs")
+
+    assert_raise Ash.Error.Unknown, fn -> Food.create_food_photo(upload(), actor: owner) end
+    assert Food.list_food_photos!(actor: owner, page: [limit: 24]).results == []
+    assert TestStorage.list_keys() == []
+  end
+
+  test "legacy jobs ignore stored user identities and run as internal analysis", %{owner: owner} do
     photo = create_unanalyzed_photo(owner)
-    notification = %Notification{data: photo, actor: user()}
-    parent = self()
+    [job] = all_enqueued(worker: Worker)
+    stub_prediction()
 
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, :unexpected_request)
-      response()
-    end)
-
-    assert :ok = Analysis.Notifier.notify(notification)
-    eventually(fn -> Task.Supervisor.children(Food.AnalysisTasks) == [] end)
-    assert Food.get_food_photo!(photo.id, actor: owner).analysis_status == :not_analyzed
-
-    assert :ok = Supervisor.terminate_child(OpenTrack.Supervisor, Food.AnalysisTasks)
-    assert :ok = Analysis.Notifier.notify(notification)
-    assert Food.get_food_photo!(photo.id, actor: owner).analysis_status == :not_analyzed
-    refute_receive :unexpected_request, 30
-  end
-
-  test "an unavailable task supervisor preserves the upload and marks analysis failed", %{
-    owner: owner
-  } do
-    assert :ok = Supervisor.terminate_child(OpenTrack.Supervisor, Food.AnalysisTasks)
-    parent = self()
-
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, :unexpected_request)
-      response()
-    end)
-
-    photo = create_analyzed_photo(owner)
-    loaded = Food.get_food_photo!(photo.id, actor: owner, load: [image: :blob])
-    assert loaded.analysis_status == :failed
-    assert AshStorage.Operations.download(loaded.image.blob) == {:ok, image_bytes()}
-    refute_receive :unexpected_request, 30
-  end
-
-  test "deleted photos never reach the provider", %{owner: owner} do
-    parent = self()
-
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, :unexpected_request)
-      response()
-    end)
-
-    deleted = create_unanalyzed_photo(owner)
-    assert :ok = Food.delete_food_photo(deleted.id, actor: owner)
-    assert catch_error(Food.analyze_food_photo!(deleted.id, actor: owner))
-    refute_receive :unexpected_request, 30
-  end
-
-  test "supervisor restart terminates tasks without replay", %{
-    owner: owner
-  } do
-    parent = self()
-
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, {:started, self()})
-
-      receive do
-        :never -> response()
-      end
-    end)
-
-    photos = for _ <- 1..2, do: create_analyzed_photo(owner)
-    assert_receive {:started, task1}, 2_000
-    assert_receive {:started, task2}, 2_000
-    monitors = [Process.monitor(task1), Process.monitor(task2)]
-    old_supervisor = Process.whereis(Food.AnalysisTasks)
-    Process.exit(old_supervisor, :kill)
-    for ref <- monitors, do: assert_receive({:DOWN, ^ref, :process, _, _}, 2_000)
-    eventually(fn -> Process.whereis(Food.AnalysisTasks) not in [nil, old_supervisor] end)
-    refute_receive {:started, _}, 30
-
-    for photo <- photos do
-      saved = Food.get_food_photo!(photo.id, actor: owner)
-      assert saved.analysis_status == :not_analyzed
-      assert is_nil(saved.analysis)
+    # Jobs queued before the switch may still contain the old actor payload.
+    for actor <- [nil, %{"id" => Ash.UUID.generate()}] do
+      assert {:ok, _} = perform_job(Worker, Map.put(job.args, "actor", actor))
     end
+
+    assert assert_analysis(photo.id, owner, :completed).analysis == prediction()
   end
 
-  test "task limit preserves uploads without queuing and releases capacity after completion", %{
-    owner: owner
-  } do
+  test "the internal actor is limited to reading photos and saving analysis", %{owner: owner} do
+    photo = create_unanalyzed_photo(owner)
+    actor = AshOban.Info.oban_trigger(Food.FoodPhoto, :process_analysis).default_actor
+
+    assert Food.get_food_photo!(photo.id, actor: actor).id == photo.id
+    assert {:error, _} = Food.delete_food_photo(photo.id, actor: actor)
+    refute Ash.can?({Food.FoodPhoto, :create, %{uploaded_file: upload()}}, actor)
+    assert {:error, _} = OpenTrack.Accounts.get_user_by_id(owner.id, actor: actor)
+    assert Food.get_food_photo!(photo.id, actor: owner).id == photo.id
+  end
+
+  test "deleted photos cancel queued work without reaching the provider", %{owner: owner} do
     parent = self()
+    FakeReqLLM.stub(fn _, _, _, _ -> send(parent, :unexpected_request) end)
+    photo = create_unanalyzed_photo(owner)
+    assert :ok = Food.delete_food_photo(photo.id, actor: owner)
 
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, {:started, self()})
+    assert %{cancelled: 1} = drain_analysis()
+    refute_receive :unexpected_request
+    assert TestStorage.list_keys() == []
+  end
 
-      receive do
-        :finish -> response()
-      end
-    end)
+  test "queued jobs survive an Oban supervisor restart", %{owner: owner} do
+    photo = create_unanalyzed_photo(owner)
+    [job] = all_enqueued(worker: Worker)
+    assert :ok = Supervisor.terminate_child(OpenTrack.Supervisor, Oban)
+    assert {:ok, _} = Supervisor.restart_child(OpenTrack.Supervisor, Oban)
+    assert [%{id: id}] = all_enqueued(worker: Worker)
+    assert id == job.id
 
-    photos = for _ <- 1..3, do: create_analyzed_photo(owner)
-    assert_receive {:started, task1}, 2_000
-    assert_receive {:started, task2}, 2_000
-    refute_receive {:started, _}, 30
-    rejected = List.last(photos)
-    assert Food.get_food_photo!(rejected.id, actor: owner).analysis_status == :failed
-    loaded = Food.get_food_photo!(rejected.id, actor: owner, load: [image: :blob])
-    assert AshStorage.Operations.download(loaded.image.blob) == {:ok, image_bytes()}
-    assert length(Task.Supervisor.children(Food.AnalysisTasks)) == 2
-
-    send(task1, :finish)
-    send(task2, :finish)
-    for photo <- Enum.take(photos, 2), do: await_photo(photo.id, owner, :completed)
-    eventually(fn -> Task.Supervisor.children(Food.AnalysisTasks) == [] end)
-    assert Food.get_food_photo!(rejected.id, actor: owner).analysis_status == :failed
-    refute_receive {:started, _}, 30
-
-    photo = create_analyzed_photo(owner)
-    assert_receive {:started, task}, 2_000
-    send(task, :finish)
-    await_photo(photo.id, owner, :completed)
-    assert length(Food.list_food_photos!(actor: owner, page: [limit: 24]).results) == 4
+    stub_prediction()
+    assert %{success: 1} = drain_analysis()
+    assert_analysis(photo.id, owner, :completed)
   end
 end

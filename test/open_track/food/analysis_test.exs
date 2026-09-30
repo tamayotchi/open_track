@@ -2,149 +2,80 @@ defmodule OpenTrack.Food.AnalysisTest do
   use OpenTrack.DataCase
   import OpenTrack.Fixtures
   import OpenTrack.AnalysisFixtures
+  alias Ash.Resource.Info
   alias AshStorage.Service.Test, as: TestStorage
   alias OpenTrack.FakeReqLLM
   alias OpenTrack.Food
-  alias OpenTrack.Food.Analysis.Estimate
+  alias OpenTrack.Food.Analysis
 
   setup do
     configure_ai()
     %{owner: user()}
   end
 
-  test "analysis returns a typed estimate without changing the stored photo", %{
-    owner: owner
-  } do
-    photo = create_unanalyzed_photo(owner, %{upload() | content_type: "image/jpeg"})
+  test "the prompt uses the fixed model and stored image, returning a typed estimate without saving",
+       %{owner: owner} do
+    action = Info.action(Analysis, :analyze)
+    assert {AshAi.Actions.Prompt, opts} = action.run
+    assert opts[:tools] == false
+    assert opts[:req_llm] == FakeReqLLM
+    parent = self()
 
-    FakeReqLLM.stub(fn _model, context, _schema, _opts ->
-      refute OpenTrack.Repo.in_transaction?()
-      [_, %{content: [image]}] = context.messages
-      assert image.type == :image
-      assert image.media_type == "image/jpeg"
-      assert image.data == image_bytes()
+    FakeReqLLM.stub(fn model, context, schema, opts ->
+      refute Repo.in_transaction?()
+      send(parent, {:generation, model, context, schema, opts})
       response()
     end)
 
-    assert {:ok, %Estimate{} = estimate} = Food.analyze_food_photo(photo.id, actor: owner)
+    photo = create_unanalyzed_photo(owner)
+
+    assert {:ok, %Analysis.Estimate{} = estimate} =
+             Food.analyze_food_photo(photo.id, actor: owner)
+
+    assert estimate.total_calories == 520.0
+    assert estimate.total_protein_g == 32.0
+    assert estimate.total_mass_g == 350.0
     assert estimate.ingredients == [%{name: "Chicken rice bowl", grams: 350.0}]
-    unchanged = Food.get_food_photo!(photo.id, actor: owner)
-    assert unchanged.analysis_status == :not_analyzed
-    assert is_nil(unchanged.analysis)
-  end
+    assert is_nil(assert_analysis(photo.id, owner, :not_analyzed).analysis)
 
-  test "analysis updates preserve omitted fields and persist atom-keyed estimates", %{
-    owner: owner
-  } do
-    photo = create_unanalyzed_photo(owner)
-    estimate = prediction() |> Jason.encode!() |> Jason.decode!(keys: :atoms!)
+    assert_receive {:generation, "openrouter:google/gemini-3.1-flash-lite", context, schema, []}
+    schema = schema["properties"]["result"]
 
-    completed =
-      Food.update_food_analysis!(
-        photo.id,
-        %{analysis: estimate, analysis_status: :completed},
-        actor: owner
-      )
-
-    assert completed.analysis == prediction()
-    assert completed.analysis_status == :completed
-    assert completed.user_id == photo.user_id
-    assert completed.inserted_at == photo.inserted_at
-
-    replacement = prediction(%{"total_calories" => 650})
-    updated = Food.update_food_analysis!(photo.id, %{analysis: replacement}, actor: owner)
-    assert updated.analysis == replacement
-    assert updated.analysis_status == :completed
-
-    status_only =
-      Food.update_food_analysis!(photo.id, %{analysis_status: :completed}, actor: owner)
-
-    assert status_only.analysis == replacement
-    unchanged = Food.update_food_analysis!(photo.id, %{}, actor: owner)
-    assert unchanged.analysis == replacement
-    assert unchanged.analysis_status == :completed
-    assert Food.get_food_photo!(photo.id, actor: owner).analysis == replacement
-  end
-
-  test "inconsistent patches are rejected and failure explicitly clears the estimate", %{
-    owner: owner
-  } do
-    photo = create_unanalyzed_photo(owner)
-
-    Food.update_food_analysis!(
-      photo.id,
-      %{analysis: prediction(), analysis_status: :completed},
-      actor: owner
-    )
-
-    for attrs <- [
-          %{analysis: nil},
-          %{analysis_status: :failed},
-          %{analysis_status: :not_analyzed},
-          %{analysis_status: nil},
-          %{analysis_status: :unknown},
-          %{analysis: prediction(), analysis_status: :failed}
-        ] do
-      assert {:error, _} = Food.update_food_analysis(photo.id, attrs, actor: owner)
-      unchanged = Food.get_food_photo!(photo.id, actor: owner)
-      assert unchanged.analysis == prediction()
-      assert unchanged.analysis_status == :completed
+    for field <- ~w(total_calories total_protein_g total_mass_g)a do
+      assert schema.properties[field].type == :number
     end
 
-    failed =
-      Food.update_food_analysis!(
-        photo.id,
-        %{analysis: nil, analysis_status: :failed},
-        actor: owner
-      )
+    assert schema.required |> Enum.map(&Atom.to_string/1) |> Enum.sort() ==
+             Enum.sort(Map.keys(prediction()))
 
-    assert is_nil(failed.analysis)
-    assert failed.analysis_status == :failed
-    loaded = Food.get_food_photo!(photo.id, actor: owner, load: [image: :blob])
-    assert is_nil(loaded.analysis)
-    assert loaded.analysis_status == :failed
-    assert AshStorage.Operations.download(loaded.image.blob) == {:ok, image_bytes()}
+    ingredient_schema = schema.properties.ingredients.items
+    assert ingredient_schema.type == :object
+    assert ingredient_schema.properties.grams.type == :number
+    assert Enum.sort(ingredient_schema.required) == [:grams, :name]
+    refute Map.has_key?(schema.properties.ingredients, :maxItems)
+    refute String.contains?(inspect(context), [owner.id, photo.id])
+    assert [%{role: :system}, %{role: :user, content: [image]}] = context.messages
+    assert image.type == :image
+    assert image.media_type == "image/png"
+    assert image.data == image_bytes()
   end
 
-  test "completion requires an estimate and other statuses require no estimate", %{
-    owner: owner
-  } do
+  test "analysis accepts only a valid photo ID, not caller-supplied image bytes", %{owner: owner} do
+    parent = self()
+    FakeReqLLM.stub(fn _, _, _, _ -> send(parent, :unexpected_request) end)
     photo = create_unanalyzed_photo(owner)
 
-    for attrs <- [
-          %{analysis_status: :completed},
-          %{analysis: nil, analysis_status: :completed},
-          %{analysis: prediction()},
-          %{analysis: prediction(), analysis_status: :not_analyzed},
-          %{analysis: prediction(), analysis_status: :failed}
-        ] do
-      assert {:error, _} = Food.update_food_analysis(photo.id, attrs, actor: owner)
-      unchanged = Food.get_food_photo!(photo.id, actor: owner)
-      assert unchanged.analysis_status == :not_analyzed
-      assert is_nil(unchanged.analysis)
+    for id <- [nil, "not-a-uuid"] do
+      assert {:error, _} = Food.analyze_food_photo(id, actor: owner)
     end
 
-    failed = Food.update_food_analysis!(photo.id, %{analysis_status: :failed}, actor: owner)
-    assert failed.analysis_status == :failed
-    assert is_nil(failed.analysis)
+    assert {:error, _} =
+             Food.analyze_food_photo(photo.id, %{image: image_bytes(), content_type: "image/png"},
+               actor: owner
+             )
 
-    reset = Food.update_food_analysis!(photo.id, %{analysis_status: :not_analyzed}, actor: owner)
-    assert reset.analysis_status == :not_analyzed
-    assert is_nil(reset.analysis)
-  end
-
-  test "analysis updates accept only analysis attributes", %{owner: owner} do
-    photo = create_unanalyzed_photo(owner)
-    other = user()
-
-    for attrs <- [%{user_id: other.id}, %{estimate: prediction()}] do
-      assert {:error, _} = Food.update_food_analysis(photo.id, attrs, actor: owner)
-    end
-
-    unchanged = Food.get_food_photo!(photo.id, actor: owner)
-    assert unchanged.user_id == owner.id
-    assert unchanged.analysis_status == :not_analyzed
-    assert is_nil(unchanged.analysis)
+    assert_analysis(photo.id, owner, :not_analyzed)
+    refute_receive :unexpected_request
   end
 
   test "non-owners and anonymous actors cannot load the image or reach the provider", %{
@@ -153,32 +84,37 @@ defmodule OpenTrack.Food.AnalysisTest do
     photo = create_unanalyzed_photo(owner)
     TestStorage.reset!()
     parent = self()
-
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, :unexpected_request)
-      response()
-    end)
+    FakeReqLLM.stub(fn _, _, _, _ -> send(parent, :unexpected_request) end)
 
     for actor <- [user(), nil] do
       assert catch_error(Food.analyze_food_photo!(photo.id, actor: actor))
     end
 
-    assert Food.get_food_photo!(photo.id, actor: owner).analysis_status == :not_analyzed
-    refute_receive :unexpected_request, 30
+    assert_analysis(photo.id, owner, :not_analyzed)
+    refute_receive :unexpected_request
   end
 
-  test "a valid photo ID is required before requesting an estimate", %{owner: owner} do
-    parent = self()
+  test "analysis forwards stored bytes and MIME metadata without revalidating uploads", %{
+    owner: owner
+  } do
+    file = upload()
 
-    FakeReqLLM.stub(fn _, _, _, _ ->
-      send(parent, :unexpected_request)
-      response()
-    end)
+    for {bytes, type} <- [
+          {"not an image", "image/png"},
+          {image_bytes(), "image/jpeg"},
+          {image_bytes() <> :binary.copy(<<0>>, 8_000_001), "image/png"}
+        ] do
+      FakeReqLLM.stub(fn _model, context, _schema, _opts ->
+        [_, %{content: [image]}] = context.messages
+        assert image.data == bytes
+        assert image.media_type == type
+        response()
+      end)
 
-    for id <- [nil, "not-a-uuid"] do
-      assert {:error, _} = Food.analyze_food_photo(id, actor: owner)
+      File.write!(file.path, bytes)
+      photo = create_unanalyzed_photo(owner, %{file | content_type: type})
+      assert {:ok, %{total_calories: 520.0}} = Food.analyze_food_photo(photo.id, actor: owner)
+      assert_analysis(photo.id, owner, :not_analyzed)
     end
-
-    refute_receive :unexpected_request, 30
   end
 end

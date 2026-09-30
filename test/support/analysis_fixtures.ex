@@ -6,13 +6,7 @@ defmodule OpenTrack.AnalysisFixtures do
 
   def configure_ai do
     FakeReqLLM.reset()
-
-    ExUnit.Callbacks.on_exit(fn ->
-      # Stop background tasks before the sandbox and fake storage go away.
-      Supervisor.terminate_child(OpenTrack.Supervisor, Food.AnalysisTasks)
-      FakeReqLLM.reset()
-      Supervisor.restart_child(OpenTrack.Supervisor, Food.AnalysisTasks)
-    end)
+    ExUnit.Callbacks.on_exit(&FakeReqLLM.reset/0)
   end
 
   def prediction(overrides \\ %{}) do
@@ -38,40 +32,29 @@ defmodule OpenTrack.AnalysisFixtures do
   end
 
   def create_analyzed_photo(owner, file \\ OpenTrack.Fixtures.upload()) do
-    Food.create_food_photo!(file, actor: owner)
+    photo = create_unanalyzed_photo(owner, file)
+    drain_analysis()
+    Food.get_food_photo!(photo.id, actor: owner)
   end
 
   def create_unanalyzed_photo(owner, file \\ OpenTrack.Fixtures.upload()) do
-    # Keep the real upload action, but leave notification delivery to the test.
-    {photo, _notifications} =
-      Food.create_food_photo!(file, actor: owner, return_notifications?: true)
-
-    photo
+    # Manual Oban testing keeps the real upload and enqueue behavior, but does
+    # not execute jobs until the test explicitly drains the queue.
+    Food.create_food_photo!(file, actor: owner)
   end
 
-  def await_photo(id, owner, status, attempts \\ 200)
-  def await_photo(_id, _owner, _status, 0), do: flunk("Analysis did not reach the expected state")
+  def drain_analysis(opts \\ []) do
+    Oban.drain_queue(
+      Keyword.merge(
+        [queue: :food_analysis, with_scheduled: true, with_recursion: true],
+        opts
+      )
+    )
+  end
 
-  def await_photo(id, owner, status, attempts) do
+  def assert_analysis(id, owner, status) do
     photo = Food.get_food_photo!(id, actor: owner)
-
-    if photo.analysis_status == status do
-      photo
-    else
-      Process.sleep(10)
-      await_photo(id, owner, status, attempts - 1)
-    end
-  end
-
-  def eventually(fun, attempts \\ 200)
-  def eventually(_fun, 0), do: flunk("Expected condition did not become true")
-
-  def eventually(fun, attempts) do
-    if fun.() do
-      :ok
-    else
-      Process.sleep(10)
-      eventually(fun, attempts - 1)
-    end
+    assert photo.analysis_status == status
+    photo
   end
 end

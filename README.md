@@ -1,7 +1,7 @@
 # OpenTrack
 
 A private food journal built with Phoenix LiveView, Ash, AshAuthentication,
-AshPhoenix, AshSqlite, AshStorage, and Ash AI with ReqLLM/OpenRouter.
+AshPhoenix, AshSqlite, AshStorage, AshOban, and Ash AI with ReqLLM/OpenRouter.
 
 ## Run locally
 
@@ -16,7 +16,8 @@ mix phx.server
 Visit http://localhost:4000 and create an account. Existing checkouts can run
 `mix deps.get && mix ash.migrate` before starting the server.
 
-SQLite stores accounts, authentication tokens, targets, photos, blobs, and attachments. Image bytes live in your private R2 bucket. There is no
+SQLite stores accounts, authentication tokens, targets, photos, blobs, attachments,
+and Oban jobs. Image bytes live in your private R2 bucket. There is no
 local disk storage fallback.
 
 ## Pages
@@ -112,103 +113,70 @@ New uploads automatically start analysis:
 OpenTrack.Food.create_food_photo!(upload, actor: current_user)
 ```
 
-Only analysis status and results are stored. Status is `not_analyzed`, `completed`,
-or `failed`; non-food is a completed result with `food_detected: false` and does not
-contribute to nutrition totals. Existing photos are not automatically backfilled,
-and there is no retry button or automatic replay.
+Photo analysis status is `not_analyzed`, `completed`, or `failed`; non-food is a
+completed result with `food_detected: false` and does not contribute to nutrition
+totals. Oban also persists job identifiers, attempts, and sanitized errors in SQLite.
+Existing photos are not automatically backfilled, and there is no retry button.
+New jobs have up to three attempts with exponential backoff. New uploads remain
+`not_analyzed` until analysis succeeds or the final handled failure marks them `failed`.
 
 ### Lifecycle and safeguards
 
-The analysis resource, nested `Estimate` typed struct, and private prompt function live in
-`lib/open_track/food/analysis.ex`, with tests in `test/open_track/food/analysis_test.exs`.
-The background notifier lives in `lib/open_track/food/analysis/notifier.ex`.
-Prompt and lifecycle tests are in `test/open_track/food/analysis/`.
-Photo persistence actions and ownership policies remain on `FoodPhoto`.
-`Analysis` owns one `:analyze` action requiring an actor, and application code interfaces
-remain on `OpenTrack.Food`.
+The upload action enqueues an AshOban job. `FoodPhoto` has just two analysis updates:
 
-- `Food.analyze_food_photo(id, actor: actor)` runs the single prompt-backed `:analyze`
-  action on `Analysis`. During prompt construction, its private `photo_content/2`
-  helper loads the owned photo after authorization and builds image content from the
-  stored bytes and MIME type. The action uses Ash AI's documented `run prompt(...)`
-  with `Analysis.Estimate` as its return type and no application tools. Its only
-  argument is the photo ID; image bytes and MIME type come from storage, never the caller.
-  Success returns `{:ok, %Analysis.Estimate{...}}`, without saving anything.
-  Errors and exceptions propagate to the caller. There are no save or failure hooks
-  on the action. Direct calls leave the photo's analysis and status unchanged.
-  Application interfaces remain generated on `OpenTrack.Food`; persistence uses
-  the separate authorized `Food.update_food_analysis` action.
-- A `Task.Supervisor` runs at most two analysis tasks **per node**, without a queue.
-  Tasks receive IDs, not image buffers. Each task reauthorizes an owned read and
-  downloads through AshStorage, using the stored bytes and recorded MIME type as-is.
-  Upload restrictions belong to the upload flow, not the analysis action.
-- Background tasks receive the original upload actor from the Ash notification.
-  Analysis reads and persistence use that actor and enforce photo ownership.
-  Owners can invoke analysis and update its results through the domain interfaces;
-  non-owners and anonymous callers cannot access or change another user's analysis.
-  Uploads still cannot set analysis results or status directly.
-- `Analysis.Notifier` schedules analysis on successful creation, outside the resource
-  transaction; no database transaction spans the AI request. Its background task
-  computes the estimate, maps errors/exceptions to a failed outcome, then makes one
-  `Food.update_food_analysis` call to save either `Map.from_struct(estimate)` with
-  `:completed` or `nil` with `:failed`. Ingredients remain constrained maps, so no
-  nested struct conversion is needed. The save is outside the exception handler, so a save failure
-  does not trigger a second update. Persistence failures are not retried.
-  The workflow assumes one worker per upload and does not lock in-flight analysis.
-  Re-running the background workflow replaces old results on success or clears them
-  on analysis failure, regardless of the previous status.
-  Closing the page does not cancel work. If both task slots are busy or the supervisor
-  is unavailable, the notifier marks analysis failed without starting the workflow.
-  The upload is preserved. Deleting a photo prevents later result writes;
-  in-flight requests may still be billed.
-- Ash AI generates the JSON Schema from the return type's `Ash.TypedStruct` fields.
-  Totals use `total_calories`, `total_protein_g`, and `total_mass_g`. Run `mix ash.migrate`
-  to rename these keys in existing saved estimates without another AI request.
-  Ash AI validates the returned fields and ingredient maps against those constraints.
-  `FoodPhoto`'s single `:update_analysis` action accepts only `:analysis` and
-  `:analysis_status`, with no intermediate estimate argument. It trusts the
-  schema-validated AI result instead of repeating field validation. Ingredient count
-  and food/non-food consistency are prompt instructions, not additional local checks.
-  The stored `analysis` attribute remains a plain map, preserving existing JSON data
-  and chart readers without a new migration. Ash/SQLite handles JSON serialization;
-  there is no manual encode/decode round-trip.
-  Updates have PATCH semantics: omitted fields are preserved, and explicit `nil`
-  clears analysis. Two built-in Ash validations keep the status consistent:
-  `:completed` requires an estimate, while `:failed` and `:not_analyzed` require `analysis: nil`.
-  Changing a completed photo to failed therefore explicitly clears its estimate:
+- `:process_analysis` calls the AI action and saves the estimate with `:completed`.
+  Errors are sanitized and returned to Oban for retries.
+- `:fail_analysis` clears the estimate and sets `:failed` after retries are exhausted.
 
-  ```elixir
-  attrs = %{analysis: Map.from_struct(estimate), analysis_status: :completed}
-  Food.update_food_analysis(id, attrs, actor: user)
-  Food.update_food_analysis(id, %{analysis: nil, analysis_status: :failed}, actor: user)
-  ```
-- Requests use ReqLLM/OpenRouter defaults for output tokens, retries, timeouts,
-  routing, and response handling. The application adds no token/response-size limits
-  or routing price ceilings. ReqLLM's default OpenRouter structured output uses a
-  schema-only function call; no application tools are executed. A failed request may
-  still be billed; use an upstream credit limit if needed.
-- Tasks are temporary and are not replayed after a crash or supervisor restart.
-  Interrupted photos remain `not_analyzed`; no expiry actions or status polling are needed.
-- Background tasks discard analysis errors rather than persisting their details.
-  Direct callers of the analysis action must handle its returned errors or exceptions.
-  ReqLLM context inspection is redacted, telemetry payload capture is disabled in
-  application configuration, and SQL parameter logging is disabled. There is no
-  custom transport-error redaction; avoid enabling raw telemetry for private photos.
-- Background results and changes from other tabs appear after a page refresh.
-  Uploads and deletions update the current tab directly. Details are collapsed and
-  clearly labeled AI estimates.
+`lib/open_track/food/analysis.ex` owns the prompt and `Estimate` schema.
+`Food.analyze_food_photo(id, actor: user)` returns a typed estimate without saving;
+its only input is the photo ID, and it loads the owned image from storage.
+`analysis/process.ex` connects that action to persistence. Jobs run as the fixed
+internal actor `%{role: :food_analysis}`; no user lookup or actor persister is needed.
+AshOban generates the worker; no handwritten worker or task supervisor is needed.
+There is no manual reanalysis or saved-result editing API.
 
-Tests use Ash AI's `req_llm:` injection with `OpenTrack.FakeReqLLM`, which implements
-`generate_object/4` and returns canned results. No API key or global Req override is
-needed. Production defaults to `ReqLLM`; the model stays fixed in both environments.
-AI tests run synchronously so their fake callbacks can be shared with background tasks.
-Tests cover prompt/schema construction, authorization, validation, and persistence,
-not ReqLLM's HTTP encoding or retries. Unanalyzed photo fixtures use Ash's
-`return_notifications?: true` rather than disabling configuration.
-No paid model evaluation is part of `mix test` or
-`mix precommit`; real-provider compatibility and accuracy need separately authorized
-manual validation. Photos alone cannot reliably establish portion weights or hidden
-cooking fats. Manual correction/portion notes are a future improvement.
+- **Durability:** Oban's SQLite `Lite` engine runs up to ten jobs per instance; additional
+  uploads wait in the queue. Photo creation, attachment metadata, and job insertion
+  share a transaction. Enqueueing precedes the upload of bytes, so enqueue failure
+  cannot orphan an image; attachment failure rolls back the job. Workers only see
+  committed uploads. This concurrency limit is not a rate limit or cluster-wide limit.
+- **Authorization:** An authorized upload approves trusted internal analysis. Jobs
+  store the photo identifier, not a user identity, images or credentials. The internal
+  actor has a policy bypass limited to photo reads and the two analysis updates; it
+  cannot create or delete photos or access accounts. User-facing actions still enforce
+  ownership. Deleted photos cancel work. Closing the page does not cancel a job.
+- **Transactions:** AI requests run outside database transactions. Results replace any
+  previous estimate regardless of status; deleting a photo cannot recreate it.
+- **Validation:** Ash AI validates output against the typed schema, then the result is
+  stored as a map. Totals are `total_calories`, `total_protein_g`, and `total_mass_g`.
+  Ingredient count and food/non-food consistency remain prompt instructions, not local
+  validation rules. Stored bytes and MIME metadata are forwarded without revalidating
+  uploads; upload restrictions belong to the upload flow.
+- **Retries and cost:** Unfinished jobs deduplicate by photo ID. Replaying a job runs
+  analysis again even if the photo is already completed or failed. Execution is at
+  least once, not exactly once: retries or replay can cause another paid request and
+  replace prior results. ReqLLM's own HTTP retry, timeout, token and routing defaults
+  also apply; use an upstream credit limit.
+- **Recovery:** Queued/retryable jobs survive restarts. Lifeline rescues abandoned
+  executing jobs after two hours, checking every minute. Finished jobs are pruned after
+  one day. A hard kill on the final attempt can bypass `:fail_analysis`, leaving a
+  discarded job and a pending photo requiring operator investigation. Recovery is
+  bounded by the retry limit, not a guarantee of success.
+- **Privacy:** Background failures persist a generic error, not provider details.
+  Direct AI callers must handle returned errors or exceptions themselves. ReqLLM context
+  inspection is redacted, telemetry payload capture and SQL parameter logging are
+  disabled. Avoid enabling raw transport telemetry for private photos.
+- **UI:** Results and changes from other tabs appear after refresh. Uploads and deletions
+  update the current tab immediately. Estimates are not measured intake.
+
+Tests use `OpenTrack.FakeReqLLM` and Oban's manual mode: uploads enqueue normally,
+then tests explicitly drain the queue. Unanalyzed fixtures leave jobs queued;
+`return_notifications?: true` does not suppress enqueueing. Prompt/schema tests live
+in `test/open_track/food/analysis_test.exs`; lifecycle and isolated queue/recovery tests
+live in `test/open_track/food/analysis/`. No paid calls are made by `mix test` or
+`mix precommit`. Real-provider HTTP behavior and estimate accuracy require separately
+authorized manual validation.
 
 ## Migrations
 

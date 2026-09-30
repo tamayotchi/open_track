@@ -42,7 +42,8 @@ defmodule OpenTrackWeb.FoodLiveTest do
     assert [photo] =
              Food.list_food_photos!(actor: owner, page: [limit: 24], load: :image_url).results
 
-    await_photo(photo.id, owner, :failed)
+    ExUnit.CaptureLog.capture_log(fn -> drain_analysis() end)
+    assert_analysis(photo.id, owner, :failed)
     assert is_binary(photo.image_url)
     assert has_element?(view, "#photos-#{photo.id} img[src='#{photo.image_url}']")
     {:ok, reloaded, _} = live(conn, "/app")

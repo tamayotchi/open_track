@@ -9,9 +9,13 @@ See [the deployment checklist](docs/production.md). Passing tests is not a produ
   A regression test verifies revocation blocks a background message.
 - [ ] Configure and verify login/registration/upload abuse controls at the trusted ingress.
   The application has no account/IP rate limiter; concurrency limits are not rate limits.
-- [ ] Implement Oban if every upload must eventually receive analysis. The current
-  two-slot supervisor has no waiting queue, job retry, or restart recovery.
-  HTTP retries follow ReqLLM's defaults.
+- [x] Replace the two-slot task supervisor with AshOban's durable SQLite queue,
+  three-attempt retries, and restart recovery. HTTP retries still follow ReqLLM defaults.
+- [ ] Add operational monitoring for discarded analysis jobs and interrupted final
+  attempts; a hard kill can bypass the Ash failure action and leave a photo pending.
+  Define an operator recovery procedure with provider costs in mind; there is no
+  manual reanalysis API.
+
 ## Other follow-ups
 
 - [ ] Restore [`ash_authentication_phoenix`](https://hexdocs.pm/ash_authentication_phoenix/)

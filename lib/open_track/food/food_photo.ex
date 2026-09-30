@@ -11,7 +11,7 @@ defmodule OpenTrack.Food.FoodPhoto do
     otp_app: :open_track,
     domain: OpenTrack.Food,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshStorage],
+    extensions: [AshStorage, AshOban],
     data_layer: AshSqlite.DataLayer
 
   alias OpenTrack.Food.Analysis
@@ -21,6 +21,26 @@ defmodule OpenTrack.Food.FoodPhoto do
     attachment_resource OpenTrack.Storage.FoodPhotoAttachment
 
     has_one_attached :image, dependent: :purge
+  end
+
+  oban do
+    triggers do
+      trigger :process_analysis do
+        action :process_analysis
+        queue :food_analysis
+        scheduler_cron false
+        read_action :journal
+        worker_read_action :read
+        default_actor %{role: :food_analysis}
+        lock_for_update? false
+        max_attempts 3
+        # Match the photo, not the nullable tenant argument (SQLite JSON nulls
+        # don't compare equal). At most one unfinished analysis job per photo.
+        worker_opts unique: [period: :infinity, states: :incomplete, keys: [:primary_key]]
+        on_error :fail_analysis
+        on_error_fails_job? true
+      end
+    end
   end
 
   sqlite do
@@ -41,21 +61,28 @@ defmodule OpenTrack.Food.FoodPhoto do
     end
 
     create :create do
-      notifiers [Analysis.Notifier]
       primary? true
       accept []
       argument :uploaded_file, :file, allow_nil?: false
 
       change relate_actor(:user)
 
+      change run_oban_trigger(:process_analysis)
       change {AshStorage.Changes.AttachFile, argument: :uploaded_file, attachment: :image}
     end
 
-    update :update_analysis do
-      accept [:analysis, :analysis_status]
+    update :process_analysis do
+      accept []
+      # The provider call must never hold a SQLite write transaction open.
+      transaction? false
+      require_atomic? false
+      change Analysis.Process
+    end
 
-      validate attribute_equals(:analysis_status, :completed), where: present(:analysis)
-      validate attribute_does_not_equal(:analysis_status, :completed), where: absent(:analysis)
+    update :fail_analysis do
+      accept []
+      change set_attribute(:analysis, nil)
+      change set_attribute(:analysis_status, :failed)
     end
 
     read :nutrition_chart_data do
@@ -72,6 +99,14 @@ defmodule OpenTrack.Food.FoodPhoto do
   end
 
   policies do
+    # Internal analysis may read photos and save outcomes, not create or delete them.
+    bypass [
+      actor_attribute_equals(:role, :food_analysis),
+      action([:read, :process_analysis, :fail_analysis])
+    ] do
+      authorize_if always()
+    end
+
     policy action_type(:create) do
       authorize_if relating_to_actor(:user)
     end

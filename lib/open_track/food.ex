@@ -11,7 +11,6 @@ defmodule OpenTrack.Food do
       define :get_food_photo, action: :read, get_by: [:id]
       define :list_food_photos, action: :journal
       define :delete_food_photo, action: :destroy
-      define :update_food_analysis, action: :update_analysis
       define :nutrition_chart_data, action: :nutrition_chart_data, args: [:from, :until]
     end
 
