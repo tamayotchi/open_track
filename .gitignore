@@ -45,3 +45,10 @@ npm-debug.log
 
 # Local 1Password secret-reference mapping.
 /.env
+/.env.*
+!/.env.example
+
+# Local deployment state and optional secret overrides.
+/.kamal/secrets-common
+/.kamal/secrets.*
+/storage/

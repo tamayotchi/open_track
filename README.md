@@ -242,6 +242,11 @@ verified against an isolated SQLite database.
 
 ## File storage and deployment
 
+Kamal is configured for **https://track.tamayotchi.com**, reusing tama_track's
+1Password credentials and R2 bucket, with an independent SQLite volume.
+See [production deployment](docs/production.md) for DNS/HTTPS prerequisites,
+secret mappings, and `kamal setup` / `kamal deploy` instructions.
+
 AshStorage is pinned to a reviewed Git revision because it is not released on Hex.
 It stores image metadata in SQLite and bytes in a private Cloudflare R2 bucket.
 LiveView uploads allow one JPG, PNG, or WebP file of at most 8 MB. These are filename

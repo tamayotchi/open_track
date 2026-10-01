@@ -1,0 +1,62 @@
+service: open-track
+image: tamayotchi/open-track
+
+servers:
+  web:
+    hosts:
+      - home-server
+
+# Match tama_track: HTTPS terminates at the external proxy/tunnel.
+# Route track.tamayotchi.com there before deploying; do not expose plain HTTP publicly.
+proxy:
+  ssl: false
+  host: track.tamayotchi.com
+  app_port: 4000
+  forward_headers: true
+  healthcheck:
+    interval: 3
+    path: /
+    timeout: 5
+
+# Allow time for release startup and SQLite migrations before switching traffic.
+deploy_timeout: 180
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_home_server
+
+registry:
+  server: ghcr.io
+  username: tamayotchi
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+builder:
+  arch: amd64
+
+env:
+  clear:
+    PHX_HOST: track.tamayotchi.com
+    PHX_SERVER: "true"
+    PORT: 4000
+    DATABASE_PATH: /app/storage/open_track.db
+    POOL_SIZE: 1
+    R2_BUCKET: tama-track
+  secret:
+    - SECRET_KEY_BASE
+    # Reuse the existing signing secret for AshAuthentication as requested.
+    - TOKEN_SIGNING_SECRET:SECRET_KEY_BASE
+    - R2_ACCOUNT_ID
+    - R2_ACCESS_KEY_ID
+    - R2_SECRET_ACCESS_KEY
+    - FOOD_AI_API_KEY
+
+# Never mount tama-track_storage: the applications have different schemas.
+volumes:
+  - "open-track_storage:/app/storage"
+
+aliases:
+  console: app exec --interactive --reuse "/app/bin/open_track remote"
+  shell: app exec --interactive --reuse "/bin/sh"
+  logs: app logs -f
