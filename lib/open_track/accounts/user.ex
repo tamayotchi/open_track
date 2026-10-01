@@ -143,6 +143,14 @@ defmodule OpenTrack.Accounts.User do
 
   relationships do
     has_one :settings, OpenTrack.Accounts.User.Settings
+
+    has_many :follower_connections, OpenTrack.Accounts.Follow do
+      destination_attribute :followed_id
+    end
+
+    has_many :following_connections, OpenTrack.Accounts.Follow do
+      destination_attribute :follower_id
+    end
   end
 
   calculations do
@@ -153,6 +161,16 @@ defmodule OpenTrack.Accounts.User do
                 target_body_fat_percent: settings.target_body_fat_percent,
                 timezone: settings.timezone
               })
+  end
+
+  aggregates do
+    count :followers_count, :follower_connections do
+      authorize? false
+    end
+
+    count :following_count, :following_connections do
+      authorize? false
+    end
   end
 
   identities do

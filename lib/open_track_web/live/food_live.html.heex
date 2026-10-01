@@ -27,7 +27,7 @@
       </.link>
     </section>
   <% else %>
-    <section :if={@public_profile?} id="public-profile" class="member-intro">
+    <section :if={@public_profile?} id="public-profile" class="member-intro flex-wrap">
       <div class="flex min-w-0 items-center gap-5">
         <img
           :if={@profile.avatar_url}
@@ -40,8 +40,44 @@
           <p class="eyebrow"><span class="status-square"></span> PUBLIC FOOD JOURNAL</p>
           <h1 class="break-words"><span class="highlight">{@profile.nickname}</span></h1>
           <p>Good meals. Small moments. A little everyday.</p>
+          <dl class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm" aria-label="Profile connections">
+            <div id="profile-followers" class="flex items-baseline gap-1.5">
+              <dt>Followers</dt>
+              <dd class="order-first text-lg font-bold tabular-nums">
+                {@profile.followers_count}
+              </dd>
+            </div>
+            <div id="profile-following" class="flex items-baseline gap-1.5">
+              <dt>Following</dt>
+              <dd class="order-first text-lg font-bold tabular-nums">
+                {@profile.following_count}
+              </dd>
+            </div>
+          </dl>
         </div>
       </div>
+      <button
+        :if={@current_user && @current_user.id != @profile.id}
+        id="profile-follow-button"
+        type="button"
+        phx-click={if @following?, do: "unfollow", else: "follow"}
+        phx-disable-with="Updating…"
+        class="neo-button shrink-0 transition-transform hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60"
+      >
+        <.icon
+          name={if @following?, do: "hero-user-minus", else: "hero-user-plus"}
+          class="size-4"
+        />
+        {if @following?, do: "Unfollow", else: "Follow"}
+      </button>
+      <.link
+        :if={!@current_user}
+        id="profile-follow-login"
+        href={~p"/users/log-in"}
+        class="neo-button shrink-0 transition-transform hover:-translate-y-0.5"
+      >
+        <.icon name="hero-user-plus" class="size-4" /> Log in to follow
+      </.link>
     </section>
 
     <section :if={!@public_profile?} class="member-intro">

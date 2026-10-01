@@ -47,7 +47,12 @@ defmodule OpenTrackWeb.FoodLive do
         _uri,
         %{assigns: %{live_action: :profile}} = socket
       ) do
-    profile = Accounts.get_public_profile!(nickname, not_found_error?: false, load: :avatar_url)
+    profile =
+      Accounts.get_public_profile!(nickname,
+        not_found_error?: false,
+        load: [:avatar_url, :followers_count, :following_count]
+      )
+
     {:noreply, load_public_profile(socket, profile)}
   end
 
@@ -63,8 +68,37 @@ defmodule OpenTrackWeb.FoodLive do
     {:noreply, socket}
   end
 
-  # Public profiles never accept mutation events, even if a visitor forges one
-  # or the signed-in visitor is the profile owner.
+  def handle_event(event, _params, %{assigns: %{public_profile?: true}} = socket)
+      when event in ["follow", "unfollow"] do
+    user = socket.assigns.current_user
+    profile = socket.assigns.profile
+
+    if user && user.id != profile.id do
+      result =
+        case event do
+          "follow" -> Accounts.follow_user(profile.id, actor: user)
+          "unfollow" -> unfollow(profile.id, user)
+        end
+
+      case result do
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Could not update your follow. Please try again.")}
+
+        _ ->
+          profile =
+            Accounts.get_public_profile!(profile.nickname,
+              load: [:avatar_url, :followers_count, :following_count]
+            )
+
+          {:noreply, socket |> assign(:profile, profile) |> assign_follow(profile)}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # The only public-profile mutations are the visitor's own follow connection.
+  # Journal mutations remain forbidden, including for the profile owner.
   def handle_event(event, _params, %{assigns: %{public_profile?: true}} = socket)
       when event not in ["set-view", "load-more", "range"] do
     {:noreply, socket}
@@ -144,8 +178,28 @@ defmodule OpenTrackWeb.FoodLive do
       days: 7,
       settings: settings
     )
+    |> assign_follow(profile)
     |> load_photos()
     |> load_nutrition()
+  end
+
+  defp assign_follow(socket, profile) do
+    user = socket.assigns.current_user
+
+    follow =
+      if user && user.id != profile.id do
+        Accounts.get_follow!(profile.id, actor: user, not_found_error?: false)
+      end
+
+    assign(socket, following?: not is_nil(follow))
+  end
+
+  defp unfollow(profile_id, user) do
+    case Accounts.get_follow(profile_id, actor: user, not_found_error?: false) do
+      {:ok, nil} -> :ok
+      {:ok, follow} -> Accounts.unfollow_user(follow.id, actor: user)
+      {:error, error} -> {:error, error}
+    end
   end
 
   defp save_photo(socket) do

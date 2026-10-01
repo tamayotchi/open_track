@@ -12,6 +12,82 @@ defmodule OpenTrackWeb.PublicProfileLiveTest do
     %{owner: user(%{nickname: "juantamayo26"})}
   end
 
+  test "visitors can follow and unfollow without seeing connection details", %{
+    conn: conn,
+    owner: owner
+  } do
+    visitor = user()
+    other_follower = user()
+    Accounts.follow_user!(owner.id, actor: other_follower)
+    Accounts.follow_user!(other_follower.id, actor: owner)
+
+    {:ok, view, _} = live(log_in(conn, visitor), "/app/profile/juantamayo26")
+    assert has_element?(view, "#profile-followers dd", "1")
+    assert has_element?(view, "#profile-following dd", "1")
+    assert has_element?(view, "#profile-follow-button[phx-click='follow']", "Follow")
+    refute has_element?(view, "#public-profile", to_string(other_follower.nickname))
+    refute has_element?(view, "#profile-followers a")
+    refute has_element?(view, "#profile-following a")
+
+    # Client-supplied IDs cannot change the acting user or the target profile.
+    render_click(view, "follow", %{"followed_id" => visitor.id, "follower_id" => owner.id})
+    assert has_element?(view, "#profile-followers dd", "2")
+    assert has_element?(view, "#profile-follow-button[phx-click='unfollow']", "Unfollow")
+    render_click(view, "follow")
+    assert has_element?(view, "#profile-followers dd", "2")
+
+    {:ok, reloaded, _} = live(log_in(conn, visitor), "/app/profile/juantamayo26")
+    assert has_element?(reloaded, "#profile-follow-button[phx-click='unfollow']")
+    view |> element("#profile-follow-button") |> render_click()
+    assert has_element?(view, "#profile-followers dd", "1")
+    assert has_element?(view, "#profile-follow-button[phx-click='follow']")
+    render_click(view, "unfollow")
+    assert has_element?(view, "#profile-followers dd", "1")
+
+    {:ok, account, _} = live(log_in(conn, owner), "/app/account")
+    assert has_element?(account, "#account-followers", "1 Followers")
+    assert has_element?(account, "#account-following", "1 Following")
+  end
+
+  test "anonymous visitors and owners cannot follow themselves or forge follow events", %{
+    conn: conn,
+    owner: owner
+  } do
+    for connection <- [conn, log_in(conn, owner)] do
+      {:ok, view, _} = live(connection, "/app/profile/juantamayo26")
+      refute has_element?(view, "#profile-follow-button")
+      render_click(view, "follow")
+      render_click(view, "unfollow")
+      assert has_element?(view, "#profile-followers dd", "0")
+      assert has_element?(view, "#profile-following dd", "0")
+    end
+
+    {:ok, anonymous, _} = live(conn, "/app/profile/juantamayo26")
+    assert has_element?(anonymous, "#profile-follow-login[href='/users/log-in']")
+    {:ok, missing, _} = live(log_in(conn, owner), "/app/profile/no-such-member")
+    render_click(missing, "follow")
+    render_click(missing, "unfollow")
+    assert has_element?(missing, "#profile-not-found")
+  end
+
+  test "profile navigation resets counts and the visitor's follow state", %{
+    conn: conn,
+    owner: owner
+  } do
+    visitor = user()
+    other = user(%{nickname: "another-journal"})
+    Accounts.follow_user!(owner.id, actor: visitor)
+
+    {:ok, view, _} = live(log_in(conn, visitor), "/app/profile/juantamayo26")
+    assert has_element?(view, "#profile-follow-button[phx-click='unfollow']")
+    render_patch(view, "/app/profile/another-journal")
+    assert has_element?(view, "#profile-followers dd", "0")
+    assert has_element?(view, "#profile-follow-button[phx-click='follow']")
+    view |> element("#profile-follow-button") |> render_click()
+    assert Accounts.get_follow!(other.id, actor: visitor)
+    assert Accounts.get_follow!(owner.id, actor: visitor)
+  end
+
   test "anonymous visitors see the owner's journal, estimates, targets and timezone", %{
     conn: conn,
     owner: owner

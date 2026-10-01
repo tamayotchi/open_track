@@ -23,5 +23,11 @@ defmodule OpenTrack.Accounts do
       define :create_settings, action: :create
       define :update_settings, action: :update
     end
+
+    resource OpenTrack.Accounts.Follow do
+      define :follow_user, action: :follow, args: [:followed_id]
+      define :get_follow, action: :read, get_by: [:followed_id]
+      define :unfollow_user, action: :destroy
+    end
   end
 end

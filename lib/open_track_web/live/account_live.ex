@@ -9,7 +9,10 @@ defmodule OpenTrackWeb.AccountLive do
     user = socket.assigns.current_user
 
     profile =
-      Accounts.get_user_by_id!(user.id, actor: user, load: [:settings, :avatar, :avatar_url])
+      Accounts.get_user_by_id!(user.id,
+        actor: user,
+        load: [:settings, :avatar, :avatar_url, :followers_count, :following_count]
+      )
 
     {:ok,
      socket
@@ -125,7 +128,10 @@ defmodule OpenTrackWeb.AccountLive do
     assign(
       socket,
       :profile,
-      Accounts.get_user_by_id!(user.id, actor: user, load: [:avatar, :avatar_url])
+      Accounts.get_user_by_id!(user.id,
+        actor: user,
+        load: [:avatar, :avatar_url, :followers_count, :following_count]
+      )
     )
   end
 
@@ -171,6 +177,14 @@ defmodule OpenTrackWeb.AccountLive do
           <div>
             <h2>Your account</h2>
             <p id="account-email">{@current_user.email}</p>
+            <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+              <span id="account-followers">
+                <strong class="tabular-nums">{@profile.followers_count}</strong> Followers
+              </span>
+              <span id="account-following">
+                <strong class="tabular-nums">{@profile.following_count}</strong> Following
+              </span>
+            </div>
           </div>
         </div>
         <.form
