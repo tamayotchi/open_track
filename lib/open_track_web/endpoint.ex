@@ -8,6 +8,8 @@ defmodule OpenTrackWeb.Endpoint do
     store: :cookie,
     key: "_open_track_key",
     signing_salt: "liYE6H/4",
+    # Browsers cap persistent cookies; authenticated HTTP requests renew this.
+    max_age: 400 * 24 * 60 * 60,
     same_site: "Lax"
   ]
 

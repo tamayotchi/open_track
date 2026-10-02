@@ -11,6 +11,7 @@ defmodule OpenTrack.Accounts.User do
   authentication do
     tokens do
       enabled? true
+      token_lifetime {36_500, :days}
       token_resource OpenTrack.Accounts.Token
       signing_secret OpenTrack.Secrets
       store_all_tokens? true

@@ -19,7 +19,14 @@ defmodule OpenTrackWeb.UserAuth do
   @doc "Load the HTTP actor after Plug has fetched the signed cookie session."
   def fetch_current_user(conn, _opts) do
     user = user_from_session(get_session(conn))
-    conn = if user, do: conn, else: delete_session(conn, @session_key)
+
+    # Refresh the persistent cookie on authenticated HTTP visits, even when the
+    # session contents haven't changed. Never extend or revive an invalid JWT.
+    conn =
+      if user,
+        do: configure_session(conn, renew: true),
+        else: delete_session(conn, @session_key)
+
     assign(conn, :current_user, user)
   end
 

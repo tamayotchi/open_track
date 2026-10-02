@@ -75,10 +75,14 @@ defmodule OpenTrackWeb.AuthControllerTest do
     assert %User{id: id} = UserAuth.user_from_session(get_session(signed_in))
     assert id == owner.id
     assert UserAuth.valid_session?(get_session(signed_in, "user_token"), owner)
+    assert_persistent_session(signed_in)
 
     loaded = signed_in |> recycle() |> get("/app")
     assert loaded.assigns.current_user.id == owner.id
     assert html_response(loaded, 200)
+    assert loaded.private.plug_session_info == :renew
+    assert get_session(loaded, "user_token") == get_session(signed_in, "user_token")
+    assert_persistent_session(loaded)
     assert {:ok, _, _} = live(recycle(signed_in), "/app")
   end
 
@@ -98,6 +102,7 @@ defmodule OpenTrackWeb.AuthControllerTest do
     assert to_string(owner.email) == "registered@example.com"
     assert to_string(owner.nickname) == "registered"
     assert UserAuth.valid_session?(get_session(registered, "user_token"), owner)
+    assert_persistent_session(registered)
     assert {:ok, _, _} = live(recycle(registered), "/app/profile/#{owner.nickname}")
   end
 
@@ -383,6 +388,24 @@ defmodule OpenTrackWeb.AuthControllerTest do
     signed_in = log_in(conn, owner)
     assert signed_in |> get("/users/log-out") |> response(404)
     assert UserAuth.valid_session?(get_session(signed_in, "user_token"), owner)
+  end
+
+  defp assert_persistent_session(conn) do
+    assert %{max_age: max_age, same_site: "Lax"} = conn.resp_cookies["_open_track_key"]
+
+    assert Enum.any?(get_resp_header(conn, "set-cookie"), fn cookie ->
+             String.starts_with?(cookie, "_open_track_key=") and
+               String.contains?(cookie, "HttpOnly")
+           end)
+
+    assert max_age == 400 * 24 * 60 * 60
+    assert {:ok, claims, User} = Jwt.verify(get_session(conn, "user_token"), User)
+    assert claims["exp"] - claims["iat"] == 36_500 * 24 * 60 * 60
+
+    assert {:ok, [stored]} =
+             TokenResource.Actions.get_token(Token, %{jti: claims["jti"], purpose: "user"})
+
+    assert DateTime.to_unix(stored.expires_at) == claims["exp"]
   end
 
   defp assert_passwords_blank(document) do

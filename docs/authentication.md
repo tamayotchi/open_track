@@ -59,6 +59,23 @@ identity and database unique index prevent duplicate nicknames, including case
 variants. Nicknames are reserved for future social features; login still accepts
 only an email and password.
 
+## Stay signed in by default
+
+Login and registration issue tokens valid for 36,500 days (approximately 100
+years). AshAuthentication requires a finite lifetime, so this is effectively
+non-expiring for normal use, not a removal of expiry validation. Existing tokens
+keep their original expiry; sign out and back in once to obtain the new lifetime.
+
+The signed, HTTP-only, SameSite=Lax session cookie persists across browser
+restarts. Its 400-day lifetime is renewed on each authenticated HTTP request,
+without changing the JWT or bypassing revocation. LiveView events alone cannot
+refresh a cookie. Browser retention limits, clearing cookies, private browsing,
+or more than 400 days without an HTTP visit can still require signing in again.
+
+This favors convenience over automatic credential expiry: a stolen session can
+remain usable until revoked. Logout still revokes the token server-side, and
+password changes alone still do not revoke other sessions.
+
 ## Session checks in HTTP and LiveView
 
 [`router.ex`](../lib/open_track_web/router.ex) uses ordinary Phoenix routes and
@@ -105,9 +122,10 @@ A mounted LiveView keeps its own assigns. Therefore `LiveUserAuth` attaches
 subject against the mounted actor. Revoked or expired sessions redirect at the
 next event/navigation; this is not an immediate broadcast disconnect of all tabs.
 
-The current forms do not offer remember-me login or automatic cookie-based
-restoration. Cookie issuance metadata, when present, and logout cleanup continue
-to use core AshAuthentication helpers.
+The current forms do not need a remember-me checkbox: the normal session cookie
+is persistent by default. There is no separate remember-me-token restoration.
+Remember-me issuance metadata, when present, and logout cleanup continue to use
+core AshAuthentication helpers.
 
 ## Small integration details now owned by us
 
