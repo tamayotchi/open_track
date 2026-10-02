@@ -20,8 +20,9 @@ if System.get_env("PHX_SERVER") do
   config :open_track, OpenTrackWeb.Endpoint, server: true
 end
 
-# AI and R2 credentials are required outside tests. Owner-authorized reads load signed image URLs;
-# browsers download directly from the private bucket. AshSqlite persists metadata.
+# AI and R2 credentials are required outside tests. Ash-authorized reads load reusable
+# signed image URLs; browsers cache downloads directly from the private bucket.
+# AshSqlite persists metadata.
 if config_env() != :test do
   config :req_llm, :openrouter_api_key, System.fetch_env!("FOOD_AI_API_KEY")
 
@@ -45,7 +46,9 @@ if config_env() != :test do
            access_key_id_env: "R2_ACCESS_KEY_ID",
            secret_access_key_env: "R2_SECRET_ACCESS_KEY",
            presigned: true,
-           expires_in: 300}
+           expires_in: 300,
+           browser_cache: true,
+        }
       ]
   end
 end

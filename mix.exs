@@ -76,9 +76,8 @@ defmodule OpenTrack.MixProject do
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ash, "~> 3.0", override: true},
-      # AshStorage has not been released on Hex yet; pin the reviewed revision.
-      {:ash_storage,
-       github: "ash-project/ash_storage", ref: "790dbc1082b9c160d4357de563fe3e101c519e70"},
+      # Test browser caching on R2; mix.lock pins the fork branch's exact revision.
+      {:ash_storage, github: "tamayotchi/ash_storage", branch: "feat/cacheable-signed-urls"},
       {:req_s3, "~> 0.2"},
       {:tzdata, "~> 1.2"},
       {:phoenix, "~> 1.8.1"},

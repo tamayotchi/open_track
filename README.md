@@ -119,7 +119,8 @@ and styles are bundled through `app.js` and `app.css`.
 - Blob and attachment resources are internal infrastructure, not public APIs.
   Owner and public-profile reads load AshStorage's `image_url` and `avatar_url`
   calculations. Browsers download images directly from private R2 using
-  five-minute signed URLs; Phoenix does not download or proxy image bytes.
+  five-minute signed URLs, reused within 150-second windows so navigation can
+  reuse the browser cache. Phoenix does not download or proxy image bytes.
 
 ```elixir
 upload = %Plug.Upload{
@@ -277,7 +278,8 @@ Kamal is configured for **https://track.tamayotchi.com**, reusing tama_track's
 See [production deployment](docs/production.md) for DNS/HTTPS prerequisites,
 secret mappings, and `kamal setup` / `kamal deploy` instructions.
 
-AshStorage is pinned to a reviewed Git revision because it is not released on Hex.
+AshStorage currently uses the [`feat/cacheable-signed-urls` branch of our fork](https://github.com/tamayotchi/ash_storage/tree/feat/cacheable-signed-urls)
+to test browser caching on R2. `mix.lock` pins the exact revision.
 It stores image metadata in SQLite and bytes in a private Cloudflare R2 bucket.
 LiveView uploads allow one JPG, PNG, or WebP file of at most 8 MB. These are filename
 extension and upload-size restrictions, not full image decoding. Resource actions do
@@ -323,12 +325,33 @@ Mix does not load `.env` itself; `op run` resolves the references and injects th
 values into the child process. The 1Password account is separate from the
 Cloudflare account identified by `R2_ACCOUNT_ID`.
 
-Food images use the `food/` prefix and avatars use `avatars/`. Ash policies check
-ownership before the app supplies signed URLs. Anyone holding a signed URL can
-fetch that image until it expires, even after logout; downloaded copies are not
-revoked. URLs expire after 300 seconds. Reloading the page generates fresh URLs
-if an image has not loaded before its URL expires; there is no background refresh.
-The bucket stays private, and the image proxy controller/routes are removed.
+Food images use the `food/` prefix and avatars use `avatars/`. Ash policies authorize
+owner, public-profile, and followed-user feed reads before the app supplies URLs.
+The bucket stays private; Phoenix does not proxy image bytes.
+
+`AshStorage.Service.S3` is configured with `presigned: true`, `expires_in: 300`, and
+`browser_cache: true` for both photos and avatars. No custom storage adapter is
+needed. The same object gets the same URL across profile/home navigation within
+150-second windows, rather than a new signature every second. Signatures expire
+300 seconds after the window starts, so newly supplied URLs have between 150 and
+300 seconds left. Replacement avatars use new blob keys and immediately get
+different URLs.
+
+Signed S3 response overrides set `Cache-Control: private, must-revalidate` and an
+absolute `Expires` matching signature expiry. This allows browser caching, not
+shared/CDN caching. There is deliberately no relative `max-age`: an image first
+fetched late must not stay fresh beyond that URL's expiry. The overrides apply to
+existing images too, without rewriting object metadata or migrating the database.
+Anyone holding a signed URL can fetch the image until it expires, even after logout;
+downloaded copies cannot be revoked. Reload/navigate to obtain a current URL if a
+lazy-loaded image expires before downloading; there is no background refresh.
+
+To verify after deployment, leave DevTools Network's **Disable cache** unchecked,
+open a profile, then navigate home within the same window. Check that the same
+photo/avatar uses the identical URL and is served from memory/disk cache. On the
+initial R2 response, confirm `Cache-Control` and `Expires` above. Crossing a window
+boundary intentionally produces a new URL. Original uploads are still served;
+resized feed/avatar variants remain a separate first-download optimization.
 
 Only credential environment-variable names, not their values, are stored in
 blob options. Existing blobs retain their original storage locations, so changing
