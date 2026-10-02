@@ -10,16 +10,17 @@ defmodule OpenTrackWeb.LiveUserAuth do
   import Phoenix.LiveView, only: [redirect: 2, attach_hook: 4]
   alias OpenTrackWeb.UserAuth
 
-  def on_mount(:optional, _params, session, socket) do
-    user = UserAuth.user_from_session(session)
+  def on_mount(:required, params, session, socket) do
+    case on_mount(:optional, params, session, socket) do
+      {:cont, %{assigns: %{current_user: nil}} = socket} ->
+        {:halt, redirect(socket, to: "/users/log-in")}
 
-    {:cont,
-     socket
-     |> assign(:current_user, user)
-     |> assign(:current_scope, if(user, do: %{actor: user}))}
+      result ->
+        result
+    end
   end
 
-  def on_mount(:required, _params, session, socket) do
+  def on_mount(:optional, _params, session, socket) do
     user = UserAuth.user_from_session(session)
 
     socket =
@@ -29,7 +30,7 @@ defmodule OpenTrackWeb.LiveUserAuth do
 
     case user do
       nil ->
-        {:halt, redirect(socket, to: "/users/log-in")}
+        {:cont, socket}
 
       _user ->
         # An already-mounted LiveView must not keep writing after logout

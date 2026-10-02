@@ -15,7 +15,7 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
     conn: conn,
     owner: owner
   } do
-    {:ok, view, _} = live(conn, "/app/account")
+    {:ok, view, _} = live(conn, "/app/account/settings")
     assert has_element?(view, "#timezone-form select[name='preferences[timezone]']")
     assert has_element?(view, "#preferences_timezone option[value='Etc/UTC'][selected]")
     assert has_element?(view, "#preferences_timezone option[value='America/Bogota']")
@@ -29,7 +29,7 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
     assert Accounts.get_user_by_id!(owner.id, actor: owner, load: :public_settings).public_settings.timezone ==
              "America/Bogota"
 
-    {:ok, reloaded, _} = live(conn, "/app/account")
+    {:ok, reloaded, _} = live(conn, "/app/account/settings")
 
     assert has_element?(
              reloaded,
@@ -50,7 +50,7 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
     conn: conn,
     owner: owner
   } do
-    {:ok, view, _} = live(conn, "/app/account")
+    {:ok, view, _} = live(conn, "/app/account/settings")
     view |> form("#targets-form", targets: %{target_weight_kg: "72"}) |> render_submit()
 
     view
@@ -65,7 +65,7 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
     assert settings.timezone == "America/Los_Angeles"
     assert settings.target_weight_kg == 72.0
 
-    {:ok, reloaded, _} = live(conn, "/app/account")
+    {:ok, reloaded, _} = live(conn, "/app/account/settings")
 
     assert has_element?(
              reloaded,
@@ -86,7 +86,7 @@ defmodule OpenTrackWeb.TimezonePreferencesLiveTest do
     owner: owner
   } do
     Accounts.create_settings!(%{timezone: "America/Bogota"}, actor: owner)
-    {:ok, view, _} = live(conn, "/app/account")
+    {:ok, view, _} = live(conn, "/app/account/settings")
 
     for zone <- ["", nil] do
       render_change(view, "validate-timezone", %{"preferences" => %{"timezone" => zone}})

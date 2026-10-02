@@ -98,7 +98,7 @@ defmodule OpenTrackWeb.AuthControllerTest do
     assert to_string(owner.email) == "registered@example.com"
     assert to_string(owner.nickname) == "registered"
     assert UserAuth.valid_session?(get_session(registered, "user_token"), owner)
-    assert {:ok, _, _} = live(recycle(registered), "/app/account")
+    assert {:ok, _, _} = live(recycle(registered), "/app/profile/#{owner.nickname}")
   end
 
   test "unknown emails and wrong passwords re-render the same generic error", %{conn: conn} do

@@ -1,0 +1,106 @@
+<Layouts.app flash={@flash} current_scope={@current_scope} app_shell={true} active_tab={:add}>
+  <section class="member-intro">
+    <div>
+      <p class="eyebrow"><span class="status-square"></span> YOUR LITTLE DAILY PRACTICE</p>
+      <h1>One more <span class="highlight">food moment.</span></h1>
+    </div>
+    <span class="member-sticker">
+      <.icon name="hero-sparkles" class="size-6" /> ONE BITE<br />AT A TIME
+    </span>
+  </section>
+
+  <div class="add-heading">
+    <h2>Add a food photo</h2>
+    <.link
+      navigate={~p"/app/profile/#{@current_user.nickname}"}
+      class="back-link"
+      aria-label="Close add food"
+    >
+      Close <.icon name="hero-x-mark" class="size-4" />
+    </.link>
+  </div>
+  <section
+    id="add-food-panel"
+    class="upload-panel app-upload-panel"
+    aria-label="Add a food photo"
+    phx-drop-target={@uploads.photo.ref}
+  >
+    <div class="upload-intro">
+      <span class="icon-tile"><.icon name="hero-camera" class="size-7" /></span>
+      <div>
+        <h2>What’s on your plate?</h2>
+        <p>Start with a little food moment.</p>
+      </div>
+    </div>
+    <.form
+      for={@form}
+      id="photo-form"
+      phx-change="validate-photo"
+      phx-submit="save-photo"
+      class="upload-form"
+    >
+      <div class="photo-picker">
+        <.live_file_input
+          upload={@uploads.photo}
+          class="photo-file-input"
+          aria-label="Choose a food photo"
+          aria-describedby="upload-help"
+        />
+        <span class="neo-button add-button" aria-hidden="true">
+          <.icon name="hero-plus" class="size-6" /> Choose photo
+        </span>
+      </div>
+      <p id="upload-help" class="upload-help">
+        JPG, PNG or WebP · Up to 8 MB · Visible on your public profile
+      </p>
+      <div
+        :for={entry <- @uploads.photo.entries}
+        id={"preview-#{entry.ref}"}
+        class="upload-preview"
+      >
+        <.live_img_preview
+          entry={entry}
+          class="preview-image"
+          alt={"Preview of #{entry.client_name}"}
+        />
+        <div class="preview-details">
+          <h3>A little moment, ready.</h3>
+          <p class="file-name">{entry.client_name}</p>
+          <p class="field-help">Ready to save to your public journal.</p>
+          <p
+            :for={error <- upload_errors(@uploads.photo, entry)}
+            class="upload-error"
+            role="alert"
+          >
+            {upload_error(error)}
+          </p>
+          <div class="preview-actions">
+            <button
+              type="submit"
+              id="save-photo"
+              class="neo-button small-button"
+              phx-disable-with="Saving…"
+            >
+              Save & estimate
+            </button>
+            <button
+              type="button"
+              phx-click="cancel-upload"
+              phx-value-ref={entry.ref}
+              class="text-button"
+              id={"cancel-#{entry.ref}"}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      </div>
+      <p :for={error <- upload_errors(@uploads.photo)} class="upload-error" role="alert">
+        {upload_error(error)}
+      </p>
+    </.form>
+  </section>
+  <p class="member-footer">
+    <.icon name="hero-sparkles" class="size-4" /> A little daily practice. One bite at a time.
+  </p>
+</Layouts.app>

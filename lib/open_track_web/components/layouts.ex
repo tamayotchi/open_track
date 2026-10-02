@@ -25,8 +25,13 @@ defmodule OpenTrackWeb.Layouts do
         </.link>
         <span :if={!@app_shell} class="header-label">THE EVERYDAY FOOD JOURNAL</span>
         <%= if @app_shell || @current_scope do %>
-          <.link navigate={~p"/app/journal"} class="journal-tab" id="header-journal">
-            <span class="status-square"></span> Your journal
+          <.link
+            navigate={~p"/app/profile/#{@current_scope.actor.nickname}"}
+            class="journal-tab"
+            id="header-profile"
+            aria-current={@active_tab == :account && "page"}
+          >
+            <.icon name="hero-user-circle" class="size-4" /> Your profile
           </.link>
         <% else %>
           <nav class="header-auth" aria-label="Account navigation">
@@ -52,14 +57,6 @@ defmodule OpenTrackWeb.Layouts do
           <.icon name="hero-home" class="size-6" /><span>Home</span>
         </.link>
         <.link
-          navigate={~p"/app/journal"}
-          id="nav-journal"
-          class={["bottom-tab", @active_tab == :journal && "active"]}
-          aria-current={@active_tab == :journal && "page"}
-        >
-          <.icon name="hero-book-open" class="size-6" /><span>Journal</span>
-        </.link>
-        <.link
           navigate={~p"/app/add"}
           id="nav-add-food"
           class="bottom-add"
@@ -69,10 +66,11 @@ defmodule OpenTrackWeb.Layouts do
           <span class="bottom-plus"><.icon name="hero-plus" class="size-8" /></span><span>Add food</span>
         </.link>
         <.link
-          navigate={~p"/app/account"}
+          navigate={~p"/app/profile/#{@current_scope.actor.nickname}"}
           id="nav-account"
-          class={["bottom-tab", @active_tab == :account && "active"]}
-          aria-current={@active_tab == :account && "page"}
+          class={["bottom-tab", @active_tab in [:account, :settings] && "active"]}
+          aria-current={if @active_tab == :account, do: "page"}
+          data-active={to_string(@active_tab in [:account, :settings])}
         >
           <.icon name="hero-user-circle" class="size-6" /><span>Account</span>
         </.link>

@@ -35,8 +35,11 @@
             No food moments here yet. Follow people from their public profiles;<br />
             their uploads and AI food details will appear here.
           </p>
-          <.link navigate={~p"/app/journal"} class="neo-button small-button mt-6">
-            Visit your journal <.icon name="hero-arrow-up-right" class="size-4" />
+          <.link
+            navigate={~p"/app/profile/#{@current_user.nickname}"}
+            class="neo-button small-button mt-6"
+          >
+            Visit your profile <.icon name="hero-arrow-up-right" class="size-4" />
           </.link>
         <% end %>
       </div>

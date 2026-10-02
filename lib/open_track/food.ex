@@ -9,7 +9,7 @@ defmodule OpenTrack.Food do
     resource OpenTrack.Food.FoodPhoto do
       define :create_food_photo, action: :create, args: [:uploaded_file]
       define :get_food_photo, action: :read, get_by: [:id]
-      define :list_food_photos, action: :journal, args: [:user_id]
+      define :list_food_photos, action: :for_profile, args: [:user_id]
       define :list_followed_users_photos, action: :from_followed_users
       define :delete_food_photo, action: :destroy
 

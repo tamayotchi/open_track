@@ -27,17 +27,23 @@ local disk storage fallback.
 | `/` | Welcome page |
 | `/users/register`, `/users/log-in` | Registration and password authentication |
 | `/app` | Home feed of food posts from people you follow |
-| `/app/journal` | Paginated photo journal, personal charts, and targets |
 | `/app/add` | Upload and save a food photo |
-| `/app/account` | Save/clear targets, upload/remove an avatar, and log out |
-| `/app/account/settings` | Change password while keeping existing sessions |
-| `/app/profile/:nickname` | Public, read-only profile and journal (no login required) |
+| `/app/profile/:nickname` | Profile, paginated photos, objectives, and collapsible nutrition charts |
+| `/app/account/settings` | Profile photo, targets, timezone, and log out |
+| `/app/account/security` | Change password while keeping existing sessions |
+| `/app/account`, `/app/journal` | Compatibility redirects to the signed-in user's profile |
 
-Public profiles show the avatar, photos, AI food details, targets, and the same
-charts and date ranges as the owner's journal, using the owner's timezone.
-Nicknames are case-insensitive. All journals (including existing photos) are
-public; emails, passwords, and account controls are not displayed.
-Only owners can upload, delete, or edit data.
+Account in the bottom navigation opens your profile; there is no separate account
+or journal page. `ProfileLive` owns profile reads, photo pagination, chart totals,
+and authorized deletion. `AddFoodLive` only handles uploads, without loading photo
+history or charts. `SettingsLive` owns the private settings forms.
+
+Profiles are public and photos-first, with a circular avatar, connection counts,
+objectives, and closed-by-default nutrition charts using the owner's timezone.
+Nicknames are case-insensitive. Signed-in users keep the bottom navigation on
+profiles; only the owner sees Settings, target editing, and photo deletion controls.
+Emails and passwords are never displayed on profiles. Uploads and settings require
+login, and all writes retain ownership checks.
 
 Follow people from their public profiles to populate Home. The authenticated feed
 shows their photos, profile links, and expandable AI food details, newest upload
@@ -67,11 +73,12 @@ pagination. These are not measured intake: repeated photos count again, and the 
 does not establish how much was eaten. Missing, failed, and non-food results stay
 blank; averages exclude missing days. Weight, steps, and body-fat charts remain empty,
 not sample data. Personal targets remain persisted and separate from estimates.
-`FoodLive` prepares the date ranges and daily chart totals; the `Food.nutrition_chart_data`
+`ProfileLive` prepares the date ranges and daily chart totals; the `Food.nutrition_chart_data`
 read provides chart inputs filtered by the required user ID, date range, and completed analysis in Ash.
-Both public profiles and the owner's journal use the same `list_food_photos(user_id)`
-and `nutrition_chart_data(user_id, from, until)` interfaces. These reads are public;
-record reads for editing and all writes retain ownership checks.
+Profiles use the `list_food_photos(user_id)` and
+`nutrition_chart_data(user_id, from, until)` domain interfaces. The former calls the
+`FoodPhoto.for_profile` action. These reads are public; record reads for editing and
+all writes retain ownership checks.
 
 New uploads receive background AI estimates. Photos remain saved when analysis
 fails. See [photo analysis](#ai-photo-analysis) for the required server configuration.
@@ -93,9 +100,9 @@ and styles are bundled through `app.js` and `app.css`.
   `User.settings`, selecting targets and timezone with one SQL `LEFT OUTER JOIN`.
   It does not load the settings resource separately; profiles without settings
   still exist, with blank targets and UTC as the display fallback. A query-count
-  test verifies this for public and owner reads. The owner's journal reuses this
-  calculation via `get_user_by_id`. Account forms load the actual `settings`
-  relationship with the user instead, because Ash update forms need a resource
+  test verifies this for public and owner reads. The Home feed also uses this
+  calculation for the viewer's timezone via `get_user_by_id`. Settings forms load
+  the actual `settings` relationship with the user instead, because Ash update forms need a resource
   record rather than the calculated map; relationship loading can use additional
   SQL queries. Avatar/storage loads and journal/chart reads remain separate.
   Callers cannot supply ownership through writable action inputs.
@@ -125,8 +132,8 @@ photo = OpenTrack.Food.create_food_photo!(upload, actor: current_user)
 OpenTrack.Food.list_food_photos!(current_user.id, page: [limit: 24, count: true])
 ```
 
-The journal action enables keyset pagination; each caller supplies a page limit.
-The LiveView requests 24 photos and a total count, adding a cursor for subsequent pages.
+The `for_profile` action enables keyset pagination; each caller supplies a page limit.
+`ProfileLive` requests 24 photos and a total count, adding a cursor for subsequent pages.
 
 ## AI photo analysis
 
@@ -141,15 +148,15 @@ FOOD_AI_API_KEY="op://YOUR_VAULT/YOUR_ITEM/YOUR_FOOD_AI_KEY_FIELD"
 
 All accounts use the fixed `openrouter:google/gemini-3.1-flash-lite` model declared
 in `lib/open_track/food/analysis.ex`. There is no runtime model setting or
-per-account model preference. Changing models requires a code change, including
-the upload disclosure. Runtime configuration passes `FOOD_AI_API_KEY` directly to
+per-account model preference. Changing models requires a code change.
+Runtime configuration passes `FOOD_AI_API_KEY` directly to
 ReqLLM's `:openrouter_api_key` setting. There is no custom client or request-options
 layer; Ash AI uses ReqLLM's defaults. There is no optional/disabled analysis mode. ReqLLM's automatic `.env` loading
 is disabled; credentials come only from runtime configuration.
 
-Before upload, the page discloses sharing with OpenRouter and the fixed model's
-provider. The worker sends the stored image bytes, including embedded metadata,
-not public/signed URLs, filenames, account identifiers, targets, or previous photos.
+The worker sends stored image bytes, including embedded metadata, to OpenRouter
+and the fixed model's provider. It does not send public/signed URLs, filenames,
+account identifiers, targets, or previous photos.
 New uploads automatically start analysis:
 
 ```elixir

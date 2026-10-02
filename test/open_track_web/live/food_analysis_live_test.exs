@@ -14,17 +14,16 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     %{conn: log_in(conn, owner), owner: owner}
   end
 
-  test "upload disclosure and persisted analysis appear after refreshing the page", %{
+  test "streamlined upload preserves analysis after refreshing the page", %{
     conn: conn,
     owner: owner
   } do
     stub_prediction()
     {:ok, view, _} = live(conn, "/app/add")
-    assert has_element?(view, "#food-ai-notice", "OpenRouter")
-    assert has_element?(view, "#food-ai-notice", "google/gemini-3.1-flash-lite")
-    assert has_element?(view, "#food-ai-notice", "embedded metadata")
-    save_photo(view)
-    assert_patch(view, "/app/journal")
+    refute has_element?(view, "#food-ai-notice")
+    assert has_element?(view, "#photo-form input[aria-describedby='upload-help']")
+    assert has_element?(view, "#upload-help")
+    {:ok, view, _} = save_photo(view) |> follow_redirect(conn, "/app/profile/#{owner.nickname}")
     [photo] = Food.list_food_photos!(owner.id, page: [limit: 24]).results
     assert has_element?(view, "#photos-#{photo.id}[data-analysis-status='not_analyzed']")
 
@@ -33,7 +32,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
 
     assert has_element?(view, "#photos-#{photo.id}[data-analysis-status='not_analyzed']")
     refute has_element?(view, "#calories-chart-values tbody tr")
-    {:ok, view, _} = live(conn, "/app/journal")
+    {:ok, view, _} = live(conn, "/app/profile/#{owner.nickname}")
     assert has_element?(view, "#photos-#{photo.id}[data-analysis-status='completed']")
     assert has_element?(view, "#photos-#{photo.id}", "520 kcal")
     assert has_element?(view, "#photos-#{photo.id}-analysis:not([open])", "AI food details")
@@ -45,9 +44,8 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     assert has_element?(view, "#calories-chart", "Not measured intake")
   end
 
-  test "uploads and disclosure use the fixed model", %{conn: conn, owner: owner} do
+  test "uploads use the fixed model", %{conn: conn, owner: owner} do
     {:ok, view, _} = live(conn, "/app/add")
-    assert has_element?(view, "#food-ai-notice", "google/gemini-3.1-flash-lite")
     parent = self()
 
     FakeReqLLM.stub(fn model, _context, _schema, _opts ->
@@ -65,13 +63,13 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
   test "closing the page does not cancel queued analysis", %{conn: conn, owner: owner} do
     stub_prediction()
     {:ok, view, _} = live(conn, "/app/add")
-    save_photo(view)
+    {:ok, view, _} = save_photo(view) |> follow_redirect(conn, "/app/profile/#{owner.nickname}")
     [photo] = Food.list_food_photos!(owner.id, page: [limit: 24]).results
     GenServer.stop(view.pid, :normal)
 
     assert %{success: 1} = drain_analysis()
     assert_analysis(photo.id, owner, :completed)
-    {:ok, reloaded, _} = live(conn, "/app/journal")
+    {:ok, reloaded, _} = live(conn, "/app/profile/#{owner.nickname}")
     assert has_element?(reloaded, "#photos-#{photo.id}", "520 kcal")
   end
 
@@ -81,7 +79,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
   } do
     file = upload()
     for _ <- 1..49, do: create_unanalyzed_photo(owner, file)
-    {:ok, view, _} = live(conn, "/app/journal")
+    {:ok, view, _} = live(conn, "/app/profile/#{owner.nickname}")
     view |> element("#load-more") |> render_click()
     ids = card_ids(view)
     assert length(ids) == 48
@@ -91,7 +89,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     assert %{success: 49} = drain_analysis()
     assert_analysis(id, owner, :completed)
     assert has_element?(view, "#photos-#{id}[data-analysis-status='not_analyzed']")
-    {:ok, view, _} = live(conn, "/app/journal")
+    {:ok, view, _} = live(conn, "/app/profile/#{owner.nickname}")
     view |> element("#load-more") |> render_click()
     assert has_element?(view, "#photos-#{id}[data-analysis-status='completed']")
     assert card_ids(view) == ids
@@ -110,12 +108,12 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
     stub_prediction()
     photo = create_analyzed_photo(owner)
     assert photo.analysis_status == :completed
-    {:ok, view, _} = live(conn, "/app/journal")
-    {:ok, other_tab, _} = live(conn, "/app/journal")
+    {:ok, view, _} = live(conn, "/app/profile/#{owner.nickname}")
+    {:ok, other_tab, _} = live(conn, "/app/profile/#{owner.nickname}")
     view |> element("#photos-#{photo.id} button[phx-click='delete-photo']") |> render_click()
     refute has_element?(view, "#photos-#{photo.id}")
     assert has_element?(other_tab, "#photos-#{photo.id}")
-    {:ok, other_tab, _} = live(conn, "/app/journal")
+    {:ok, other_tab, _} = live(conn, "/app/profile/#{owner.nickname}")
 
     for tab <- [view, other_tab] do
       assert has_element?(tab, "#photo-count", "0")
@@ -142,7 +140,7 @@ defmodule OpenTrackWeb.FoodAnalysisLiveTest do
 
     nonfood = create_analyzed_photo(owner)
     assert nonfood.analysis_status == :completed
-    {:ok, view, _} = live(conn, "/app/journal")
+    {:ok, view, _} = live(conn, "/app/profile/#{owner.nickname}")
     assert has_element?(view, "#photos-#{failed.id}", "Analysis failed")
     assert has_element?(view, "#photos-#{nonfood.id}", "No food identified")
     refute has_element?(view, "#photos-#{nonfood.id}", "0 kcal")

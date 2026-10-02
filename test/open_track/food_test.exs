@@ -7,7 +7,9 @@ defmodule OpenTrack.FoodTest do
   import OpenTrack.AnalysisFixtures,
     only: [create_unanalyzed_photo: 1, create_unanalyzed_photo: 2]
 
+  alias Ash.Resource.Info
   alias OpenTrack.Food
+  alias OpenTrack.Food.FoodPhoto
   alias OpenTrack.Storage.{Blob, FoodPhotoAttachment}
 
   test "uploads persist ownership, analysis defaults, metadata, and bytes" do
@@ -62,7 +64,12 @@ defmodule OpenTrack.FoodTest do
     )
   end
 
-  test "journal pages are newest first, owner-scoped, and honor the requested limit" do
+  test "the public profile read replaces the retired journal action" do
+    assert is_nil(Info.action(FoodPhoto, :journal))
+    assert %{type: :read} = Info.action(FoodPhoto, :for_profile)
+  end
+
+  test "profile photos are newest first, user-scoped, and honor the requested limit" do
     owner = user()
     file = upload()
 
@@ -90,7 +97,7 @@ defmodule OpenTrack.FoodTest do
     refute last_page.more?
   end
 
-  test "journal pagination does not skip or repeat photos with identical timestamps" do
+  test "profile pagination does not skip or repeat photos with identical timestamps" do
     owner = user()
     file = upload()
 
@@ -113,7 +120,7 @@ defmodule OpenTrack.FoodTest do
     assert Enum.sort([first.id, second.id]) == Enum.sort(Enum.map(photos, & &1.id))
   end
 
-  test "record reads stay owner-only while journal reads are public" do
+  test "record reads stay owner-only while profile photo reads are public" do
     owner = user()
     photo = create_unanalyzed_photo(owner)
 

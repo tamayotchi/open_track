@@ -54,11 +54,11 @@ defmodule OpenTrackWeb.SecurityLive do
       flash={@flash}
       current_scope={@current_scope}
       app_shell={true}
-      active_tab={:account}
+      active_tab={:settings}
     >
       <section class="settings-page">
-        <.link navigate={~p"/app/account"} class="back-link" id="back-to-account">
-          <.icon name="hero-arrow-left" class="size-4" /> Back to account
+        <.link navigate={~p"/app/account/settings"} class="back-link" id="back-to-settings">
+          <.icon name="hero-arrow-left" class="size-4" /> Back to settings
         </.link>
         <header class="settings-heading">
           <div>

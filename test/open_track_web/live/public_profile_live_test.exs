@@ -12,6 +12,41 @@ defmodule OpenTrackWeb.PublicProfileLiveTest do
     %{owner: user(%{nickname: "juantamayo26"})}
   end
 
+  test "public journals lead with photos and keep metrics in a closed disclosure", %{
+    conn: conn,
+    owner: owner
+  } do
+    {:ok, view, _} = live(conn, "/app/profile/juantamayo26")
+
+    assert has_element?(
+             view,
+             "#public-profile #targets-summary.profile-objectives",
+             "Objectives"
+           )
+
+    assert has_element?(view, "#profile-avatar-placeholder")
+
+    assert has_element?(
+             view,
+             "details#profile-insights-#{owner.id}:not([open]) > summary#profile-insights-toggle",
+             "Nutrition & trends"
+           )
+
+    assert has_element?(view, ".profile-insights #chart-range")
+    assert has_element?(view, ".profile-insights #calories-chart")
+    assert has_element?(view, "#photos:not([hidden])")
+    refute has_element?(view, ".profile-insights #photos")
+    refute has_element?(view, "#profile-settings-link")
+    refute has_element?(view, "#bottom-nav")
+
+    {:ok, own_profile, _} = live(log_in(conn, owner), "/app/profile/juantamayo26")
+
+    assert has_element?(
+             own_profile,
+             "#profile-settings-link[href='/app/account/settings']"
+           )
+  end
+
   test "visitors can follow and unfollow without seeing connection details", %{
     conn: conn,
     owner: owner
@@ -44,9 +79,9 @@ defmodule OpenTrackWeb.PublicProfileLiveTest do
     render_click(view, "unfollow")
     assert has_element?(view, "#profile-followers dd", "1")
 
-    {:ok, account, _} = live(log_in(conn, owner), "/app/account")
-    assert has_element?(account, "#account-followers", "1 Followers")
-    assert has_element?(account, "#account-following", "1 Following")
+    {:ok, account, _} = live(log_in(conn, owner), "/app/profile/#{owner.nickname}")
+    assert has_element?(account, "#profile-followers dd", "1")
+    assert has_element?(account, "#profile-following dd", "1")
   end
 
   test "anonymous visitors and owners cannot follow themselves or forge follow events", %{
@@ -144,7 +179,7 @@ defmodule OpenTrackWeb.PublicProfileLiveTest do
     visitor = user()
     visitor_photo = create_unanalyzed_photo(visitor)
 
-    for connection <- [conn, log_in(conn, visitor), log_in(conn, owner)] do
+    for connection <- [conn, log_in(conn, visitor)] do
       {:ok, view, _} = live(connection, "/app/profile/juantamayo26")
       assert has_element?(view, "#photos-#{photo.id}")
       refute has_element?(view, "#photos-#{visitor_photo.id}")
@@ -159,6 +194,43 @@ defmodule OpenTrackWeb.PublicProfileLiveTest do
 
       assert has_element?(view, "#photos-#{photo.id}")
     end
+  end
+
+  test "signed-in profiles keep navigation and only owners see editing controls", %{
+    conn: conn,
+    owner: owner
+  } do
+    visitor = user()
+    photo = create_unanalyzed_photo(owner)
+    {:ok, own_profile, _} = live(log_in(conn, owner), "/app/profile/#{owner.nickname}")
+    assert has_element?(own_profile, "#bottom-nav")
+
+    assert has_element?(
+             own_profile,
+             "#nav-account[aria-current='page'][href='/app/profile/#{owner.nickname}']"
+           )
+
+    assert has_element?(own_profile, "#profile-settings-link")
+    assert has_element?(own_profile, "#edit-targets")
+    assert has_element?(own_profile, "#photos-#{photo.id} button[phx-click='delete-photo']")
+
+    {:ok, other_profile, _} = live(log_in(conn, visitor), "/app/profile/#{owner.nickname}")
+    assert has_element?(other_profile, "#bottom-nav")
+    assert has_element?(other_profile, "#nav-account[href='/app/profile/#{visitor.nickname}']")
+    refute has_element?(other_profile, "#nav-account[aria-current]")
+    refute has_element?(other_profile, "#profile-settings-link")
+    refute has_element?(other_profile, "#edit-targets")
+    refute has_element?(other_profile, "[phx-click='delete-photo']")
+  end
+
+  test "mounted public profiles reject owner mutations after logout", %{conn: conn, owner: owner} do
+    photo = create_unanalyzed_photo(owner)
+    signed_in = log_in(conn, owner)
+    {:ok, view, _} = live(signed_in, "/app/profile/#{owner.nickname}")
+    delete(signed_in, "/users/log-out")
+    render_click(view, "delete-photo", %{"id" => photo.id})
+    assert_redirect(view, "/users/log-in")
+    assert Food.get_food_photo!(photo.id, actor: owner)
   end
 
   test "public pagination appends both views without including other users", %{
@@ -200,6 +272,8 @@ defmodule OpenTrackWeb.PublicProfileLiveTest do
     assert has_element?(view, "#targets-summary", "Not set")
     refute has_element?(view, "#empty-journal a")
     refute has_element?(view, "#profile-avatar")
+    assert has_element?(view, "#profile-avatar-placeholder")
+    refute has_element?(view, "#targets-summary dd span")
   end
 
   test "navigation between profiles resets the journal, settings and chart range", %{
@@ -208,13 +282,15 @@ defmodule OpenTrackWeb.PublicProfileLiveTest do
   } do
     photo = create_unanalyzed_photo(owner)
     Accounts.create_settings!(%{target_weight_kg: 72, timezone: "America/Bogota"}, actor: owner)
-    user(%{nickname: "another-journal"})
+    other = user(%{nickname: "another-journal"})
 
     {:ok, view, _} = live(conn, "/app/profile/juantamayo26")
     view |> form("#chart-range", days: "90") |> render_change()
     render_patch(view, "/app/profile/another-journal")
 
     assert has_element?(view, "#public-profile", "another-journal")
+    assert has_element?(view, "details#profile-insights-#{other.id}:not([open])")
+    refute has_element?(view, "#profile-insights-#{owner.id}")
     assert has_element?(view, "#photo-count", "0")
     assert has_element?(view, "#targets-summary", "Not set")
     assert has_element?(view, "#journal-timezone", "UTC")
@@ -279,22 +355,23 @@ defmodule OpenTrackWeb.PublicProfileLiveTest do
     assert conn.status == 404
   end
 
-  test "existing app routes remain authenticated and account omits the profile sharing block", %{
+  test "private settings remain authenticated and profile omits private identity fields", %{
     conn: conn,
     owner: owner
   } do
-    for path <- ["/app", "/app/journal", "/app/add", "/app/account", "/app/account/settings"] do
+    for path <- [
+          "/app",
+          "/app/journal",
+          "/app/add",
+          "/app/account",
+          "/app/account/settings",
+          "/app/account/security"
+        ] do
       assert {:error, {:redirect, %{to: "/users/log-in"}}} = live(conn, path)
     end
 
-    {:ok, view, _} = live(log_in(conn, owner), "/app/account")
-    assert has_element?(view, "#account-email", to_string(owner.email))
-    refute has_element?(view, "#public-profile-link")
-
-    refute has_element?(
-             view,
-             ".account-page",
-             "Anyone with this link can see your photos, AI food details, charts, and targets."
-           )
+    {:ok, view, _} = live(log_in(conn, owner), "/app/profile/#{owner.nickname}")
+    refute has_element?(view, "#account-email")
+    refute has_element?(view, "#main-content", to_string(owner.email))
   end
 end

@@ -62,7 +62,8 @@ defmodule OpenTrack.Food.FoodPhoto do
       pagination keyset?: true, required?: false
     end
 
-    read :journal do
+    read :for_profile do
+      description "Newest food photos belonging to a public profile."
       argument :user_id, :uuid, allow_nil?: false
       filter expr(user_id == ^arg(:user_id))
       prepare build(sort: [inserted_at: :desc])
@@ -132,7 +133,7 @@ defmodule OpenTrack.Food.FoodPhoto do
       authorize_if actor_present()
     end
 
-    policy action([:journal, :nutrition_chart_data]) do
+    policy action([:for_profile, :nutrition_chart_data]) do
       authorize_if always()
     end
 

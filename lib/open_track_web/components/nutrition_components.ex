@@ -7,14 +7,20 @@ defmodule OpenTrackWeb.NutritionComponents do
   attr :settings, :any, default: nil
   attr :editable, :boolean, default: true
 
-  def targets_summary(assigns) do
+  def objectives(assigns) do
     ~H"""
-    <section id="targets-summary" class="targets-summary" aria-labelledby="targets-summary-title">
+    <section
+      id="targets-summary"
+      class="profile-objectives"
+      aria-labelledby="targets-summary-title"
+    >
       <div class="section-heading">
-        <h2 id="targets-summary-title">{if @editable, do: "Your targets", else: "Targets"}</h2>
+        <h2 id="targets-summary-title">
+          <.icon name="hero-flag" class="size-4" /> Objectives
+        </h2>
         <.link
           :if={@editable}
-          navigate={~p"/app/account#targets"}
+          navigate={~p"/app/account/settings#targets"}
           class="text-button"
           id="edit-targets"
         >
@@ -27,7 +33,7 @@ defmodule OpenTrackWeb.NutritionComponents do
           <dd>
             {if @settings && @settings.target_weight_kg,
               do: @settings.target_weight_kg,
-              else: "Not set"} <span>kg</span>
+              else: "Not set"} <span :if={@settings && @settings.target_weight_kg}>kg</span>
           </dd>
         </div>
         <div>
@@ -35,18 +41,16 @@ defmodule OpenTrackWeb.NutritionComponents do
           <dd>
             {if @settings && @settings.target_body_fat_percent,
               do: @settings.target_body_fat_percent,
-              else: "Not set"} <span>%</span>
+              else: "Not set"} <span :if={@settings && @settings.target_body_fat_percent}>%</span>
           </dd>
         </div>
       </dl>
-      <p class="field-help mt-4">Personal goals. No automatic recommendations.</p>
     </section>
     """
   end
 
   attr :metric, :map, required: true
   attr :days, :integer, default: 7
-  attr :expanded, :boolean, default: true
   attr :entries, :list, required: true
   attr :today, Date, required: true
   attr :timezone_label, :string, default: "UTC"
@@ -66,11 +70,7 @@ defmodule OpenTrackWeb.NutritionComponents do
     ~H"""
     <article
       id={@id}
-      class={[
-        "nutrition-card",
-        "nutrition-card--#{@metric.key}",
-        @expanded && "nutrition-card--expanded"
-      ]}
+      class={["nutrition-card", "nutrition-card--#{@metric.key}"]}
     >
       <header class="nutrition-card-heading">
         <h3>
@@ -95,7 +95,7 @@ defmodule OpenTrackWeb.NutritionComponents do
         <svg
           viewBox={"0 0 #{@plot.width} 190"}
           class="nutrition-chart"
-          style={if @expanded, do: "min-width: #{@plot.width}px"}
+          style={"min-width: #{@plot.width}px"}
           role="img"
           aria-labelledby={"#{@id}-title #{@id}-description"}
         >
@@ -145,13 +145,13 @@ defmodule OpenTrackWeb.NutritionComponents do
           </g>
         </svg>
       </div>
-      <p :if={@expanded} class="chart-date-range">
+      <p class="chart-date-range">
         {Calendar.strftime(@plot.first_date, "%b %-d, %Y")} – {Calendar.strftime(
           @plot.last_date,
           "%b %-d, %Y"
         )} · Journal history
       </p>
-      <p :if={@expanded && @days > 7} class="field-help mb-4">
+      <p :if={@days > 7} class="field-help mb-4">
         Scroll the chart to see every day, or open the values below.
       </p>
       <details class="chart-values" id={"#{@id}-values"}>

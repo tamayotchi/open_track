@@ -20,8 +20,15 @@ defmodule OpenTrackWeb.HomeLiveTest do
     assert {:error, {:redirect, %{to: "/users/log-in"}}} = live(conn, "/app")
     {:ok, view, _} = live(log_in(conn, viewer), "/app")
     assert has_element?(view, "#nav-home[aria-current='page']", "Home")
-    assert has_element?(view, "#nav-journal[href='/app/journal']")
-    assert has_element?(view, "#nav-add-food[href='/app/add']")
+    assert has_element?(view, "#header-profile[href='/app/profile/#{viewer.nickname}']")
+
+    assert has_element?(
+             view,
+             "#bottom-nav .bottom-nav-inner > a:nth-child(2)#nav-add-food[href='/app/add']"
+           )
+
+    assert has_element?(view, "#bottom-nav .bottom-nav-inner > a:nth-child(3)#nav-account")
+    refute has_element?(view, "#bottom-nav .bottom-nav-inner > a:nth-child(4)")
     assert has_element?(view, "#feed-posts[phx-update='stream']")
     assert has_element?(view, "#empty-feed", "Follow people")
     assert post_ids(view) == []

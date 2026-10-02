@@ -1,13 +1,52 @@
-defmodule OpenTrackWeb.AccountLiveTest do
+defmodule OpenTrackWeb.SettingsLiveTest do
   use OpenTrackWeb.ConnCase
   import Phoenix.LiveViewTest
   import OpenTrack.Fixtures
   alias OpenTrack.Accounts
 
+  test "Account opens the owned profile and settings return to that same profile", %{conn: conn} do
+    owner = user()
+    conn = log_in(conn, owner)
+    path = "/app/profile/#{owner.nickname}"
+    {:ok, home, _} = live(conn, "/app")
+
+    {:ok, profile, _} =
+      home |> element("#nav-account") |> render_click() |> follow_redirect(conn, path)
+
+    assert has_element?(profile, "#nav-account[aria-current='page'][href='#{path}']")
+    assert has_element?(profile, "#profile-avatar-placeholder")
+    assert has_element?(profile, "#profile-followers dd", "0")
+    assert has_element?(profile, "#profile-following dd", "0")
+    refute has_element?(profile, "#targets-form")
+    refute has_element?(profile, "#account-email")
+
+    {:ok, settings, _} =
+      profile
+      |> element("#profile-settings-link")
+      |> render_click()
+      |> follow_redirect(conn, "/app/account/settings")
+
+    assert has_element?(settings, "#targets-form")
+    assert has_element?(settings, "#timezone-form")
+    assert has_element?(settings, "#avatar-form")
+    assert has_element?(settings, "#account-email", to_string(owner.email))
+    assert has_element?(settings, "#back-to-profile[href='#{path}']")
+    assert has_element?(settings, "#nav-account[data-active='true']")
+
+    {:ok, security, _} =
+      settings
+      |> element("#account-security-link")
+      |> render_click()
+      |> follow_redirect(conn, "/app/account/security")
+
+    assert has_element?(security, "#password-form")
+    assert has_element?(security, "#back-to-settings[href='/app/account/settings']")
+  end
+
   test "target form persists updates and blank values across remounts", %{conn: conn} do
     owner = user()
     conn = log_in(conn, owner)
-    {:ok, view, _} = live(conn, "/app/account")
+    {:ok, view, _} = live(conn, "/app/account/settings")
     assert has_element?(view, "#account-email", to_string(owner.email))
 
     view
@@ -15,7 +54,7 @@ defmodule OpenTrackWeb.AccountLiveTest do
     |> render_submit()
 
     assert has_element?(view, "#flash-info", "Targets saved.")
-    {:ok, reloaded, _} = live(conn, "/app/account")
+    {:ok, reloaded, _} = live(conn, "/app/account/settings")
     assert has_element?(reloaded, "input[name='targets[target_weight_kg]'][value='70.5']")
     assert has_element?(reloaded, "input[name='targets[target_body_fat_percent]'][value='20.0']")
 
@@ -36,7 +75,7 @@ defmodule OpenTrackWeb.AccountLiveTest do
 
     assert is_nil(settings.target_weight_kg)
     assert is_nil(settings.target_body_fat_percent)
-    {:ok, cleared, _} = live(conn, "/app/account")
+    {:ok, cleared, _} = live(conn, "/app/account/settings")
     refute has_element?(cleared, "#targets-form input[value]:not([value=''])")
   end
 
@@ -52,8 +91,8 @@ defmodule OpenTrackWeb.AccountLiveTest do
 
     other_device = log_in(conn, other_login)
     refute get_session(signed_in, "user_token") == get_session(other_device, "user_token")
-    {:ok, view, _} = live(signed_in, "/app/account/settings")
-    {:ok, other_view, _} = live(other_device, "/app/account")
+    {:ok, view, _} = live(signed_in, "/app/account/security")
+    {:ok, other_view, _} = live(other_device, "/app/account/settings")
 
     view
     |> form("#password-form",
@@ -82,8 +121,8 @@ defmodule OpenTrackWeb.AccountLiveTest do
   test "password forms require the latest password even in an already-open tab", %{conn: conn} do
     owner = user()
     signed_in = log_in(conn, owner)
-    {:ok, view, _} = live(signed_in, "/app/account/settings")
-    {:ok, other_tab, _} = live(signed_in, "/app/account/settings")
+    {:ok, view, _} = live(signed_in, "/app/account/security")
+    {:ok, other_tab, _} = live(signed_in, "/app/account/security")
     opts = [context: %{private: %{ash_authentication?: true}}]
 
     view
@@ -139,7 +178,7 @@ defmodule OpenTrackWeb.AccountLiveTest do
   test "already-mounted pages reject events after session revocation", %{conn: conn} do
     owner = user()
     signed_in = log_in(conn, owner)
-    {:ok, view, _} = live(signed_in, "/app/account")
+    {:ok, view, _} = live(signed_in, "/app/account/settings")
     delete(signed_in, "/users/log-out")
     render_submit(view, "save-targets", %{"targets" => %{"target_weight_kg" => "70"}})
     assert_redirect(view, "/users/log-in")
@@ -156,7 +195,7 @@ defmodule OpenTrackWeb.AccountLiveTest do
   end
 
   test "incomplete avatar uploads can be cancelled without crashing", %{conn: conn} do
-    {:ok, view, _} = live(log_in(conn, user()), "/app/account")
+    {:ok, view, _} = live(log_in(conn, user()), "/app/account/settings")
 
     input =
       file_input(view, "#avatar-form", :avatar, [
@@ -176,7 +215,7 @@ defmodule OpenTrackWeb.AccountLiveTest do
     owner = user()
     Accounts.update_user_avatar!(owner, upload(), actor: owner)
     original = Accounts.get_user_by_id!(owner.id, actor: owner, load: [avatar: :blob])
-    {:ok, view, _} = live(log_in(conn, owner), "/app/account")
+    {:ok, view, _} = live(log_in(conn, owner), "/app/account/settings")
 
     for entry <- [
           %{name: "notes.txt", content: "text", type: "text/plain"},
@@ -197,7 +236,7 @@ defmodule OpenTrackWeb.AccountLiveTest do
   test "avatar upload and removal persist and the browser receives its storage URL", %{conn: conn} do
     owner = user()
     conn = log_in(conn, owner)
-    {:ok, view, _} = live(conn, "/app/account")
+    {:ok, view, _} = live(conn, "/app/account/settings")
 
     input =
       file_input(view, "#avatar-form", :avatar, [
@@ -210,12 +249,21 @@ defmodule OpenTrackWeb.AccountLiveTest do
     profile = Accounts.get_user_by_id!(owner.id, actor: owner, load: :avatar_url)
     assert is_binary(profile.avatar_url)
     assert has_element?(view, "#account-avatar-image[src='#{profile.avatar_url}']")
-    {:ok, reloaded, _} = live(conn, "/app/account")
+    {:ok, account, _} = live(conn, "/app/profile/#{owner.nickname}")
+
+    assert has_element?(
+             account,
+             "#profile-avatar[src='#{profile.avatar_url}'][width='112'][height='112']"
+           )
+
+    refute has_element?(account, "#profile-avatar-placeholder")
+    assert has_element?(account, ".profile-connections #profile-followers")
+    {:ok, reloaded, _} = live(conn, "/app/account/settings")
     assert has_element?(reloaded, "#account-avatar-image[src='#{profile.avatar_url}']")
     view |> element("#remove-avatar") |> render_click()
     refute has_element?(view, "#remove-avatar")
     refute has_element?(view, "#account-avatar-image")
-    {:ok, without_avatar, _} = live(conn, "/app/account")
+    {:ok, without_avatar, _} = live(conn, "/app/account/settings")
     refute has_element?(without_avatar, "#account-avatar-image")
   end
 end

@@ -60,8 +60,17 @@
       </div>
     </div>
     <div>
-      <.link navigate={~p"/app/journal"} id="landing-journal" class="neo-button add-button">
-        Explore the journal <.icon name="hero-arrow-right" class="size-5" />
+      <.link
+        navigate={
+          if @current_scope,
+            do: ~p"/app/profile/#{@current_scope.actor.nickname}",
+            else: ~p"/users/register"
+        }
+        id="landing-profile"
+        class="neo-button add-button"
+      >
+        {if @current_scope, do: "Your profile", else: "Start your journal"}
+        <.icon name="hero-arrow-right" class="size-5" />
       </.link>
       <p class="upload-help">Your public food journal · Create an account to get started</p>
     </div>

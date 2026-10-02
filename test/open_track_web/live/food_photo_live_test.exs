@@ -1,4 +1,4 @@
-defmodule OpenTrackWeb.FoodLiveTest do
+defmodule OpenTrackWeb.FoodPhotoLiveTest do
   use OpenTrackWeb.ConnCase
   import Phoenix.LiveViewTest
   import OpenTrack.Fixtures
@@ -11,9 +11,46 @@ defmodule OpenTrackWeb.FoodLiveTest do
     %{conn: log_in(conn, owner), owner: owner}
   end
 
-  test "empty journal and card/table switch", %{conn: conn} do
-    {:ok, view, _} = live(conn, "/app/journal")
-    assert has_element?(view, "#nav-journal[aria-current='page']")
+  test "the upload page does not query photo history or handle profile events", %{conn: conn} do
+    ref = make_ref()
+    handler = {__MODULE__, ref}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:open_track, :repo, :query],
+        &__MODULE__.record_photo_query/4,
+        {self(), ref}
+      )
+
+    try do
+      {:ok, view, _} = live(conn, "/app/add")
+      assert view.module == OpenTrackWeb.AddFoodLive
+      assert has_element?(view, "#photo-form")
+      refute has_element?(view, "#photos")
+      refute has_element?(view, "#chart-range")
+
+      for event <- ["range", "load-more", "set-view", "delete-photo"] do
+        render_click(view, event, %{
+          "days" => "90",
+          "mode" => "table",
+          "id" => Ash.UUID.generate()
+        })
+      end
+
+      refute_receive {^ref, :photo_query}
+      assert has_element?(view, "#photo-form")
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  test "owned profile and card/table switch", %{conn: conn, owner: owner} do
+    {:ok, view, _} = live(conn, "/app/profile/#{owner.nickname}")
+    assert has_element?(view, "#nav-account[aria-current='page']")
+    assert has_element?(view, "#profile-settings-link[href='/app/account/settings']")
+    assert has_element?(view, "a[href='/app/account/settings#targets']")
+    assert has_element?(view, "a[href='/app/account/settings#timezone-preferences']")
     assert has_element?(view, "#photos[phx-update='stream']:not([hidden])")
     assert has_element?(view, "#empty-journal")
     assert has_element?(view, "#photo-count", "0")
@@ -28,6 +65,8 @@ defmodule OpenTrackWeb.FoodLiveTest do
 
   test "uploads persist across remounts and can be deleted", %{conn: conn, owner: owner} do
     {:ok, view, _} = live(conn, "/app/add")
+    assert has_element?(view, "#nav-add-food[aria-current='page']")
+    refute has_element?(view, "#nav-account[aria-current]")
 
     upload =
       file_input(view, "#photo-form", :photo, [
@@ -35,9 +74,14 @@ defmodule OpenTrackWeb.FoodLiveTest do
       ])
 
     render_upload(upload, "lunch.png")
-    view |> form("#photo-form") |> render_submit()
-    assert_patch(view, "/app/journal")
-    assert has_element?(view, "#photo-count", "1")
+
+    {:ok, profile, _} =
+      view
+      |> form("#photo-form")
+      |> render_submit()
+      |> follow_redirect(conn, "/app/profile/#{owner.nickname}")
+
+    assert has_element?(profile, "#photo-count", "1")
 
     assert [photo] =
              Food.list_food_photos!(owner.id, page: [limit: 24], load: :image_url).results
@@ -45,8 +89,8 @@ defmodule OpenTrackWeb.FoodLiveTest do
     ExUnit.CaptureLog.capture_log(fn -> drain_analysis() end)
     assert_analysis(photo.id, owner, :failed)
     assert is_binary(photo.image_url)
-    assert has_element?(view, "#photos-#{photo.id} img[src='#{photo.image_url}']")
-    {:ok, reloaded, _} = live(conn, "/app/journal")
+    assert has_element?(profile, "#photos-#{photo.id} img[src='#{photo.image_url}']")
+    {:ok, reloaded, _} = live(conn, "/app/profile/#{owner.nickname}")
     assert has_element?(reloaded, "#photos-#{photo.id} img[src='#{photo.image_url}']")
     assert has_element?(reloaded, "#food_log-#{photo.id} img[src='#{photo.image_url}']")
     reloaded |> element("#photos-#{photo.id} button[phx-click='delete-photo']") |> render_click()
@@ -57,10 +101,13 @@ defmodule OpenTrackWeb.FoodLiveTest do
     assert Food.list_food_photos!(owner.id, page: [limit: 24]).results == []
   end
 
-  test "another user's photos stay hidden and forged deletion events fail", %{conn: conn} do
+  test "another user's photos stay hidden and forged deletion events fail", %{
+    conn: conn,
+    owner: owner
+  } do
     other = user()
     photo = create_unanalyzed_photo(other)
-    {:ok, view, _} = live(conn, "/app/journal")
+    {:ok, view, _} = live(conn, "/app/profile/#{owner.nickname}")
     refute has_element?(view, "#photos-#{photo.id}")
     refute has_element?(view, "#food_log-#{photo.id}")
     assert has_element?(view, "#photo-count", "0")
@@ -70,8 +117,11 @@ defmodule OpenTrackWeb.FoodLiveTest do
     assert Food.get_food_photo!(photo.id, actor: other).id == photo.id
   end
 
-  test "unknown and malformed photo IDs show a deletion error without crashing", %{conn: conn} do
-    {:ok, view, _} = live(conn, "/app/journal")
+  test "unknown and malformed photo IDs show a deletion error without crashing", %{
+    conn: conn,
+    owner: owner
+  } do
+    {:ok, view, _} = live(conn, "/app/profile/#{owner.nickname}")
 
     for id <- [Ash.UUID.generate(), "not-a-uuid"] do
       render_click(view, "delete-photo", %{"id" => id})
@@ -93,7 +143,8 @@ defmodule OpenTrackWeb.FoodLiveTest do
     assert {:ok, _} = preflight_upload(upload)
     assert has_element?(view, ".upload-preview")
     render_submit(view, "save-photo", %{})
-    assert has_element?(view, "#photo-count", "0")
+    assert has_element?(view, "#photo-form")
+    refute has_element?(view, "#photos")
     view |> element("button[phx-click='cancel-upload']") |> render_click()
     refute has_element?(view, ".upload-preview")
   end
@@ -136,7 +187,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     expected_ids =
       Food.list_food_photos!(owner.id, page: [limit: 49]).results |> Enum.map(& &1.id)
 
-    {:ok, view, _} = live(conn, "/app/journal")
+    {:ok, view, _} = live(conn, "/app/profile/#{owner.nickname}")
     assert has_element?(view, "#photo-count", "49")
 
     for expected_count <- [24, 48, 49] do
@@ -154,5 +205,11 @@ defmodule OpenTrackWeb.FoodLiveTest do
 
     assert has_element?(view, "#photo-count", "49")
     refute has_element?(view, "#load-more")
+  end
+
+  def record_photo_query(_event, _measurements, metadata, {pid, ref}) do
+    if String.contains?(metadata.query, ~s("food_photos")) do
+      send(pid, {ref, :photo_query})
+    end
   end
 end

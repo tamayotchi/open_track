@@ -27,18 +27,20 @@ defmodule OpenTrackWeb.Router do
     post "/users/register", AuthController, :register
     delete "/users/log-out", AuthController, :sign_out
 
+    get "/app/account", PageController, :profile
+    get "/app/journal", PageController, :profile
+
     live_session :authenticated,
       on_mount: [{OpenTrackWeb.LiveUserAuth, :required}] do
       live "/app", HomeLive, :index
-      live "/app/journal", FoodLive, :index
-      live "/app/add", FoodLive, :add
-      live "/app/account", AccountLive, :index
-      live "/app/account/settings", SecurityLive, :index
+      live "/app/add", AddFoodLive, :new
+      live "/app/account/settings", SettingsLive, :edit
+      live "/app/account/security", SecurityLive, :index
     end
 
     live_session :public_profiles,
       on_mount: [{OpenTrackWeb.LiveUserAuth, :optional}] do
-      live "/app/profile/:nickname", FoodLive, :profile
+      live "/app/profile/:nickname", ProfileLive, :show
     end
   end
 
