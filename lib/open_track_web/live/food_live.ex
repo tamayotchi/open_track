@@ -222,7 +222,7 @@ defmodule OpenTrackWeb.FoodLive do
          socket
          |> load_photos()
          |> put_flash(:info, "Photo saved.")
-         |> push_patch(to: ~p"/app")}
+         |> push_patch(to: ~p"/app/journal")}
 
       {:error, _} ->
         {:noreply,

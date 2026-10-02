@@ -7,7 +7,9 @@ defmodule OpenTrackWeb.PageControllerTest do
     assert [_] = document |> LazyHTML.query("#journal-title") |> LazyHTML.to_tree()
 
     assert [_] =
-             document |> LazyHTML.query("#landing-journal[href='/app']") |> LazyHTML.to_tree()
+             document
+             |> LazyHTML.query("#landing-journal[href='/app/journal']")
+             |> LazyHTML.to_tree()
 
     assert [_] =
              document

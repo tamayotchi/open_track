@@ -26,7 +26,8 @@ local disk storage fallback.
 | --- | --- |
 | `/` | Welcome page |
 | `/users/register`, `/users/log-in` | Registration and password authentication |
-| `/app` | Paginated photo journal, personal charts, and targets |
+| `/app` | Home feed of food posts from people you follow |
+| `/app/journal` | Paginated photo journal, personal charts, and targets |
 | `/app/add` | Upload and save a food photo |
 | `/app/account` | Save/clear targets, upload/remove an avatar, and log out |
 | `/app/account/settings` | Change password while keeping existing sessions |
@@ -37,6 +38,28 @@ charts and date ranges as the owner's journal, using the owner's timezone.
 Nicknames are case-insensitive. All journals (including existing photos) are
 public; emails, passwords, and account controls are not displayed.
 Only owners can upload, delete, or edit data.
+
+Follow people from their public profiles to populate Home. The authenticated feed
+shows their photos, profile links, and expandable AI food details, newest upload
+first (`inserted_at`, then ID for ties). It loads 12 posts at a time using keyset
+pagination through
+`OpenTrack.Food.list_followed_users_photos(actor: current_user, page: [limit: 12])`.
+This domain interface calls the `FoodPhoto.from_followed_users` read action.
+Timestamps use the viewer's timezone. Use **Refresh feed** to see new uploads, completed analyses,
+deletions, and follow changes; updates are not pushed live.
+
+The feed joins the viewer's outgoing follow connections directly to photos using
+`followed_id = user_id`. Its actor-filtered `follow_from_viewer` relationship has at most
+one matching connection per photo owner, so other followers cannot duplicate posts.
+The current SQLite query plan starts with the follow index, then looks up photos
+through the `(user_id, inserted_at)` index instead of scanning photos with a
+correlated user/follower check. A regression test checks this plan; it is not a
+production latency benchmark. Public user identities and image URLs are loaded
+separately for presentation, without materializing the followed-ID list in Elixir.
+`photo.user_id` stores the uploader's ID; `photo.user` loads that user's public
+identity through `User.read_public_identity`. This action selects ID and nickname,
+allows avatar loading, and hides email and password hashes. Private account reads
+still use the owner-only `User.read` action via `Accounts.get_user_by_id`.
 
 Charts have 7-, 30-, and 90-day ranges. Calories and protein sum successful AI food
 estimates by **upload date in the owner's timezone**, across all matching photos, independent of journal

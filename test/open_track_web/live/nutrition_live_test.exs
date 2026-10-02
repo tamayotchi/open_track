@@ -12,7 +12,7 @@ defmodule OpenTrackWeb.NutritionLiveTest do
   end
 
   test "the journal keeps all graphs without fabricating measurements", %{conn: conn} do
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
 
     for metric <- NutritionChart.metrics() do
       assert has_element?(view, "##{metric.key}-chart svg[role='img']")
@@ -59,7 +59,7 @@ defmodule OpenTrackWeb.NutritionLiveTest do
         })
     })
 
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
     first_label = Calendar.strftime(first, "%b %-d, %Y")
     today_label = Calendar.strftime(today, "%b %-d, %Y")
 
@@ -90,7 +90,7 @@ defmodule OpenTrackWeb.NutritionLiveTest do
 
     late_photo = nutrition_photo(owner, DateTime.add(midnight, 21, :hour))
     nutrition_photo(user(), midnight)
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
 
     labels =
       Enum.map([first_date, Date.add(today, -1), today], &Calendar.strftime(&1, "%b %-d, %Y"))
@@ -134,7 +134,7 @@ defmodule OpenTrackWeb.NutritionLiveTest do
       nutrition_photo(owner, timestamp)
     end
 
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
 
     assert chart_values(view, :calories) == [
              {Calendar.strftime(first_date, "%b %-d, %Y"), "520"},
@@ -149,11 +149,11 @@ defmodule OpenTrackWeb.NutritionLiveTest do
     today = Date.utc_today()
     timestamp = DateTime.new!(today, ~T[02:00:00], "Etc/UTC")
     photo = nutrition_photo(owner, timestamp)
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
     assert chart_values(view, :calories) == [{Calendar.strftime(today, "%b %-d, %Y"), "520"}]
 
     Accounts.create_settings!(%{timezone: "America/Bogota"}, actor: owner)
-    {:ok, local_view, _} = live(conn, "/app")
+    {:ok, local_view, _} = live(conn, "/app/journal")
 
     assert chart_values(local_view, :calories) == [
              {Calendar.strftime(Date.add(today, -1), "%b %-d, %Y"), "520"}
@@ -170,7 +170,7 @@ defmodule OpenTrackWeb.NutritionLiveTest do
     timestamp = DateTime.new!(today, ~T[12:00:00], "Etc/UTC")
     for _ <- 1..25, do: nutrition_photo(owner, timestamp)
 
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
     assert has_element?(view, "#photos article:nth-of-type(24)")
     refute has_element?(view, "#photos article:nth-of-type(25)")
     date_label = Calendar.strftime(today, "%b %-d, %Y")
@@ -195,7 +195,7 @@ defmodule OpenTrackWeb.NutritionLiveTest do
       nutrition_photo(owner, timestamp)
     end
 
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
     assert has_element?(view, "#targets-summary", "72")
 
     for {days, offsets} <- [{"7", [0]}, {"30", [-7, 0]}, {"90", [-30, -7, 0]}] do

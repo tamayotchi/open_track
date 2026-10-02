@@ -29,7 +29,8 @@ defmodule OpenTrackWeb.Router do
 
     live_session :authenticated,
       on_mount: [{OpenTrackWeb.LiveUserAuth, :required}] do
-      live "/app", FoodLive, :index
+      live "/app", HomeLive, :index
+      live "/app/journal", FoodLive, :index
       live "/app/add", FoodLive, :add
       live "/app/account", AccountLive, :index
       live "/app/account/settings", SecurityLive, :index

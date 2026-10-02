@@ -11,6 +11,8 @@ defmodule OpenTrackWeb.FoodComponents do
 
   attr :editable, :boolean, default: true
 
+  attr :user, OpenTrack.Accounts.User, default: nil
+
   def photo_card(assigns) do
     assigns =
       assign(
@@ -21,6 +23,37 @@ defmodule OpenTrackWeb.FoodComponents do
 
     ~H"""
     <article id={@id} class="photo-card" data-analysis-status={@photo.analysis_status}>
+      <header :if={@user} class="border-b-2 border-black p-4">
+        <.link
+          navigate={~p"/app/profile/#{@user.nickname}"}
+          class="group flex min-w-0 items-center gap-3"
+          aria-label={"View #{@user.nickname}'s journal"}
+        >
+          <img
+            :if={@user.avatar_url}
+            src={@user.avatar_url}
+            alt=""
+            loading="lazy"
+            class="size-11 shrink-0 rounded-full border-2 border-black object-cover"
+          />
+          <span
+            :if={!@user.avatar_url}
+            class="grid size-11 shrink-0 place-items-center rounded-full border-2 border-black bg-[#b7d96d]"
+          >
+            <.icon name="hero-user" class="size-5" />
+          </span>
+          <span class="min-w-0">
+            <span class="block truncate text-sm font-bold underline-offset-4 group-hover:underline">
+              {@user.nickname}
+            </span>
+            <span class="text-xs text-muted">Shared a food moment</span>
+          </span>
+          <.icon
+            name="hero-arrow-up-right"
+            class="ml-auto size-4 shrink-0 transition-transform group-hover:-translate-y-0.5"
+          />
+        </.link>
+      </header>
       <.photo_image photo={@photo} />
       <div class="photo-caption">
         <h3>Food moment</h3>

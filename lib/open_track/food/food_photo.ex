@@ -69,6 +69,13 @@ defmodule OpenTrack.Food.FoodPhoto do
       pagination keyset?: true
     end
 
+    read :from_followed_users do
+      description "Newest food photos uploaded by users the actor follows."
+      filter expr(follow_from_viewer.follower_id == ^actor(:id))
+      prepare build(sort: [inserted_at: :desc, id: :desc])
+      pagination keyset?: true
+    end
+
     read :nutrition_chart_data do
       argument :user_id, :uuid, allow_nil?: false
       argument :from, :utc_datetime_usec, allow_nil?: false
@@ -121,6 +128,10 @@ defmodule OpenTrack.Food.FoodPhoto do
       authorize_if relating_to_actor(:user)
     end
 
+    policy action(:from_followed_users) do
+      authorize_if actor_present()
+    end
+
     policy action([:journal, :nutrition_chart_data]) do
       authorize_if always()
     end
@@ -158,9 +169,16 @@ defmodule OpenTrack.Food.FoodPhoto do
   end
 
   relationships do
+    has_one :follow_from_viewer, OpenTrack.Accounts.Follow do
+      source_attribute :user_id
+      destination_attribute :followed_id
+      filter expr(follower_id == ^actor(:id))
+    end
+
     belongs_to :user, OpenTrack.Accounts.User do
       allow_nil? false
       public? true
+      read_action :read_public_identity
     end
   end
 end

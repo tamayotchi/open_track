@@ -9,7 +9,7 @@ defmodule OpenTrackWeb.UserAuthTest do
   alias OpenTrackWeb.UserAuth
 
   test "all private routes require authentication", %{conn: conn} do
-    for path <- ["/app", "/app/add", "/app/account", "/app/account/settings"] do
+    for path <- ["/app", "/app/journal", "/app/add", "/app/account", "/app/account/settings"] do
       assert conn |> get(path) |> redirected_to() == "/users/log-in"
       assert {:error, {:redirect, %{to: "/users/log-in"}}} = live(conn, path)
     end

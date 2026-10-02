@@ -283,7 +283,7 @@ defmodule OpenTrackWeb.PublicProfileLiveTest do
     conn: conn,
     owner: owner
   } do
-    for path <- ["/app", "/app/add", "/app/account", "/app/account/settings"] do
+    for path <- ["/app", "/app/journal", "/app/add", "/app/account", "/app/account/settings"] do
       assert {:error, {:redirect, %{to: "/users/log-in"}}} = live(conn, path)
     end
 

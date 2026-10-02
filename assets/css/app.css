@@ -130,8 +130,8 @@ h2, h3 { font-weight: 800; }
 .member-intro p:not(.eyebrow) { margin-top: 17px; font-size: 13px; color: var(--muted); }
 .member-sticker { display: flex; align-items: center; gap: 10px; padding: 12px; border: var(--border); background: var(--yellow); box-shadow: 3px 3px 0 var(--ink); transform: rotate(5deg); font: 800 9px/1.6 ui-monospace, monospace; }
 .bottom-nav { position: fixed; z-index: 40; bottom: 0; left: 0; right: 0; border-top: 3px solid var(--ink); background: var(--white); padding-bottom: env(safe-area-inset-bottom, 0px); }
-.bottom-nav-inner { display: grid; grid-template-columns: repeat(3, 1fr); align-items: center; max-width: 580px; height: 83px; margin: auto; }
-.bottom-tab { display: flex; align-items: center; flex-direction: column; gap: 6px; padding: 10px; margin-inline: 16px; border: 2px solid transparent; border-radius: 5px; font-size: 10px; font-weight: 700; transition: background-color 120ms ease; }
+.bottom-nav-inner { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; max-width: 580px; height: 83px; margin: auto; }
+.bottom-tab { display: flex; align-items: center; flex-direction: column; gap: 6px; padding: 10px; margin-inline: 4px; border: 2px solid transparent; border-radius: 5px; font-size: 10px; font-weight: 700; transition: background-color 120ms ease; }
 .bottom-tab.active { background: var(--green); border-color: var(--ink); }
 .bottom-tab:hover { border-color: var(--ink); }
 .bottom-add { display: flex; align-items: center; flex-direction: column; align-self: end; gap: 7px; padding-bottom: 10px; font-size: 10px; font-weight: 700; }

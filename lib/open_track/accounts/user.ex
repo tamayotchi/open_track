@@ -29,6 +29,19 @@ defmodule OpenTrack.Accounts.User do
     end
   end
 
+  field_policies do
+    private_fields :include
+
+    field_policy [:email, :hashed_password] do
+      forbid_if action(:read_public_identity)
+      authorize_if always()
+    end
+
+    field_policy :* do
+      authorize_if always()
+    end
+  end
+
   storage do
     blob_resource OpenTrack.Storage.Blob
     attachment_resource OpenTrack.Storage.UserAttachment
@@ -43,6 +56,11 @@ defmodule OpenTrack.Accounts.User do
 
   actions do
     defaults [:read]
+
+    read :read_public_identity do
+      description "Public user identity for display alongside food photos."
+      prepare build(select: [:id, :nickname])
+    end
 
     read :public_profile do
       argument :nickname, :ci_string, allow_nil?: false
@@ -100,7 +118,7 @@ defmodule OpenTrack.Accounts.User do
       authorize_if always()
     end
 
-    policy action(:public_profile) do
+    policy action([:public_profile, :read_public_identity]) do
       authorize_if always()
     end
 

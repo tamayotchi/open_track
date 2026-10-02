@@ -12,8 +12,8 @@ defmodule OpenTrackWeb.FoodLiveTest do
   end
 
   test "empty journal and card/table switch", %{conn: conn} do
-    {:ok, view, _} = live(conn, "/app")
-    assert has_element?(view, "#nav-home[aria-current='page']")
+    {:ok, view, _} = live(conn, "/app/journal")
+    assert has_element?(view, "#nav-journal[aria-current='page']")
     assert has_element?(view, "#photos[phx-update='stream']:not([hidden])")
     assert has_element?(view, "#empty-journal")
     assert has_element?(view, "#photo-count", "0")
@@ -36,7 +36,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
 
     render_upload(upload, "lunch.png")
     view |> form("#photo-form") |> render_submit()
-    assert_patch(view, "/app")
+    assert_patch(view, "/app/journal")
     assert has_element?(view, "#photo-count", "1")
 
     assert [photo] =
@@ -46,7 +46,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     assert_analysis(photo.id, owner, :failed)
     assert is_binary(photo.image_url)
     assert has_element?(view, "#photos-#{photo.id} img[src='#{photo.image_url}']")
-    {:ok, reloaded, _} = live(conn, "/app")
+    {:ok, reloaded, _} = live(conn, "/app/journal")
     assert has_element?(reloaded, "#photos-#{photo.id} img[src='#{photo.image_url}']")
     assert has_element?(reloaded, "#food_log-#{photo.id} img[src='#{photo.image_url}']")
     reloaded |> element("#photos-#{photo.id} button[phx-click='delete-photo']") |> render_click()
@@ -60,7 +60,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
   test "another user's photos stay hidden and forged deletion events fail", %{conn: conn} do
     other = user()
     photo = create_unanalyzed_photo(other)
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
     refute has_element?(view, "#photos-#{photo.id}")
     refute has_element?(view, "#food_log-#{photo.id}")
     assert has_element?(view, "#photo-count", "0")
@@ -71,7 +71,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
   end
 
   test "unknown and malformed photo IDs show a deletion error without crashing", %{conn: conn} do
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
 
     for id <- [Ash.UUID.generate(), "not-a-uuid"] do
       render_click(view, "delete-photo", %{"id" => id})
@@ -136,7 +136,7 @@ defmodule OpenTrackWeb.FoodLiveTest do
     expected_ids =
       Food.list_food_photos!(owner.id, page: [limit: 49]).results |> Enum.map(& &1.id)
 
-    {:ok, view, _} = live(conn, "/app")
+    {:ok, view, _} = live(conn, "/app/journal")
     assert has_element?(view, "#photo-count", "49")
 
     for expected_count <- [24, 48, 49] do

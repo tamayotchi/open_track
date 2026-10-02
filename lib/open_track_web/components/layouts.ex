@@ -15,13 +15,17 @@ defmodule OpenTrackWeb.Layouts do
     <a href="#main-content" class="skip-link">Skip to content</a>
     <header class={["site-header", @app_shell && "member-header"]}>
       <div class="header-inner">
-        <.link href={~p"/"} class="brand" aria-label="Open Track home">
+        <.link
+          href={if @current_scope, do: ~p"/app", else: ~p"/"}
+          class="brand"
+          aria-label="Open Track home"
+        >
           <span class="brand-icon"><.icon name="hero-sparkles-solid" class="size-6" /></span>
           open<span class="brand-light">track</span><span class="brand-dot">.</span>
         </.link>
         <span :if={!@app_shell} class="header-label">THE EVERYDAY FOOD JOURNAL</span>
         <%= if @app_shell || @current_scope do %>
-          <.link navigate={~p"/app"} class="journal-tab" id="header-journal">
+          <.link navigate={~p"/app/journal"} class="journal-tab" id="header-journal">
             <span class="status-square"></span> Your journal
           </.link>
         <% else %>
@@ -45,7 +49,15 @@ defmodule OpenTrackWeb.Layouts do
           class={["bottom-tab", @active_tab == :home && "active"]}
           aria-current={@active_tab == :home && "page"}
         >
-          <.icon name="hero-home" class="size-6" /><span>Journal</span>
+          <.icon name="hero-home" class="size-6" /><span>Home</span>
+        </.link>
+        <.link
+          navigate={~p"/app/journal"}
+          id="nav-journal"
+          class={["bottom-tab", @active_tab == :journal && "active"]}
+          aria-current={@active_tab == :journal && "page"}
+        >
+          <.icon name="hero-book-open" class="size-6" /><span>Journal</span>
         </.link>
         <.link
           navigate={~p"/app/add"}

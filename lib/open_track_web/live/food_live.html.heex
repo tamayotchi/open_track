@@ -2,7 +2,7 @@
   flash={@flash}
   current_scope={@current_scope}
   app_shell={!@public_profile?}
-  active_tab={if @live_action == :add, do: :add, else: :home}
+  active_tab={if @live_action == :add, do: :add, else: :journal}
 >
   <%= if @public_profile? && is_nil(@profile) do %>
     <section
@@ -138,7 +138,7 @@
 
     <div :if={@live_action == :add} class="add-heading">
       <h2>Add a food photo</h2>
-      <.link navigate={~p"/app"} class="back-link" aria-label="Close add food">
+      <.link navigate={~p"/app/journal"} class="back-link" aria-label="Close add food">
         Close <.icon name="hero-x-mark" class="size-4" />
       </.link>
     </div>

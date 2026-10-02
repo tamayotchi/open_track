@@ -1,0 +1,68 @@
+<Layouts.app flash={@flash} current_scope={@current_scope} app_shell={true} active_tab={:home}>
+  <div class="mx-auto max-w-xl">
+    <section class="member-intro flex-wrap" aria-labelledby="feed-title">
+      <div>
+        <p class="eyebrow"><span class="status-square"></span> A SEAT AT THEIR TABLE</p>
+        <h1 id="feed-title">Your <span class="highlight">people.</span></h1>
+        <p>Food moments from the people you follow.</p>
+      </div>
+    </section>
+
+    <div class="mt-6 mb-5 flex items-center justify-between gap-3">
+      <span class="sort-note">
+        <.icon name="hero-bars-arrow-down" class="size-4" /> Newest first
+      </span>
+      <button
+        id="refresh-feed"
+        type="button"
+        phx-click="refresh"
+        phx-disable-with="Refreshing…"
+        class="text-button transition-opacity hover:opacity-70 disabled:cursor-wait"
+      >
+        <.icon name="hero-arrow-path" class="size-4" /> Refresh feed
+      </button>
+    </div>
+
+    <div id="feed-posts" phx-update="stream" class="space-y-7">
+      <div id="empty-feed" class="empty-journal hidden only:flex">
+        <span class="empty-icon"><.icon name="hero-user-group" class="size-8" /></span>
+        <%= if @feed_error? do %>
+          <h2>Your feed couldn’t load</h2>
+          <p>Use Refresh feed to try again.</p>
+        <% else %>
+          <h2>Your table is waiting</h2>
+          <p>
+            No food moments here yet. Follow people from their public profiles;<br />
+            their uploads and AI food details will appear here.
+          </p>
+          <.link navigate={~p"/app/journal"} class="neo-button small-button mt-6">
+            Visit your journal <.icon name="hero-arrow-up-right" class="size-4" />
+          </.link>
+        <% end %>
+      </div>
+      <FoodComponents.photo_card
+        :for={{id, photo} <- @streams.posts}
+        id={id}
+        photo={photo}
+        user={photo.user}
+        timezone={@timezone}
+        editable={false}
+      />
+    </div>
+
+    <div :if={@more?} class="mt-8 text-center">
+      <button
+        id="load-more-feed"
+        type="button"
+        phx-click="load-more"
+        phx-disable-with="Loading…"
+        class="neo-button small-button disabled:cursor-wait"
+      >
+        More food moments <.icon name="hero-arrow-down" class="size-4" />
+      </button>
+    </div>
+    <p class="member-footer">
+      <.icon name="hero-sparkles" class="size-4" /> Real moments. Rough AI estimates.
+    </p>
+  </div>
+</Layouts.app>
