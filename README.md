@@ -119,7 +119,7 @@ and styles are bundled through `app.js` and `app.css`.
 - Blob and attachment resources are internal infrastructure, not public APIs.
   Owner and public-profile reads load AshStorage's `image_url` and `avatar_url`
   calculations. Browsers download images directly from private R2 using
-  five-minute signed URLs, reused within 150-second windows so navigation can
+  one-day signed URLs, reused within 23-hour, 59-minute windows so navigation can
   reuse the browser cache. Phoenix does not download or proxy image bytes.
 
 ```elixir
@@ -329,13 +329,11 @@ Food images use the `food/` prefix and avatars use `avatars/`. Ash policies auth
 owner, public-profile, and followed-user feed reads before the app supplies URLs.
 The bucket stays private; Phoenix does not proxy image bytes.
 
-`AshStorage.Service.S3` is configured with `presigned: true`, `expires_in: 300`, and
-`browser_cache: true` for both photos and avatars. No custom storage adapter is
-needed. The same object gets the same URL across profile/home navigation within
-150-second windows, rather than a new signature every second. Signatures expire
-300 seconds after the window starts, so newly supplied URLs have between 150 and
-300 seconds left. Replacement avatars use new blob keys and immediately get
-different URLs.
+`AshStorage.Service.S3` is configured with `presigned: true`, `expires_in: 86_400`,
+and `browser_cache: true` for both photos and avatars. URLs are reused within
+86,340-second windows (23 hours, 59 minutes) and expire one day after the window
+starts. Newly supplied URLs have at least 60 seconds remaining to begin a download.
+Replacement avatars use new blob keys and immediately get different URLs.
 
 Signed S3 response overrides set `Cache-Control: private, must-revalidate` and an
 absolute `Expires` matching signature expiry. This allows browser caching, not

@@ -46,9 +46,8 @@ if config_env() != :test do
            access_key_id_env: "R2_ACCESS_KEY_ID",
            secret_access_key_env: "R2_SECRET_ACCESS_KEY",
            presigned: true,
-           expires_in: 300,
-           browser_cache: true,
-        }
+           expires_in: 86_400,
+           browser_cache: true}
       ]
   end
 end
