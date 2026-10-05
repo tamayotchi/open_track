@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>OpenTrack</title>
+  <rect width="512" height="512" fill="#b7d96d" />
+  <g transform="rotate(-5 256 256)">
+    <rect x="126" y="124" width="284" height="284" rx="26" fill="#000" />
+    <rect x="110" y="108" width="284" height="284" rx="26" fill="#f8f5ec" stroke="#000" stroke-width="12" />
+    <path d="M222 166 C229 204 244 219 282 226 C244 233 229 248 222 286 C215 248 200 233 162 226 C200 219 215 204 222 166Z" fill="#000" />
+    <path d="M322 146 C326 169 336 179 359 183 C336 187 326 197 322 220 C318 197 308 187 285 183 C308 179 318 169 322 146Z" fill="#ffd570" stroke="#000" stroke-width="8" stroke-linejoin="round" />
+    <path d="M309 267 C313 290 323 300 346 304 C323 308 313 318 309 341 C305 318 295 308 272 304 C295 300 305 290 309 267Z" fill="#edb5ce" stroke="#000" stroke-width="8" stroke-linejoin="round" />
+  </g>
+</svg>

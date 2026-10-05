@@ -86,6 +86,13 @@ fails. See [photo analysis](#ai-photo-analysis) for the required server configur
 The cream/pastel journal design uses Tailwind v4 and custom components. Scripts
 and styles are bundled through `app.js` and `app.css`.
 
+## iPhone Home Screen app
+
+Install OpenTrack from Safari using **Share → Add to Home Screen**. The installed
+web app opens at `/app` with its own icon, without Safari's toolbar. It remains
+online-only and does not have Apple Health/HealthKit access.
+See [installation and iPhone test checklist](docs/iphone-app.md).
+
 ## Ash architecture
 
 - Resource actions own validation, ownership, persistence, and attachment behavior.

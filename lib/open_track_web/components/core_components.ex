@@ -67,7 +67,11 @@ defmodule OpenTrackWeb.CoreComponents do
           <p>{msg}</p>
         </div>
         <div class="flex-1" />
-        <button type="button" class="group self-start cursor-pointer" aria-label="close">
+        <button
+          type="button"
+          class="group flex size-11 shrink-0 items-center justify-center self-start cursor-pointer"
+          aria-label="Close notification"
+        >
           <.icon name="hero-x-mark" class="size-5 opacity-40 group-hover:opacity-70" />
         </button>
       </div>
