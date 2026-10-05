@@ -16,7 +16,10 @@ After deploying these changes to the HTTPS site:
 
 Installation does not require the App Store or an Apple developer account.
 Safari and the installed app may have separate browser storage. Installing the
-app does not bypass login, extend token expiry, or change logout/revocation behavior.
+app does not bypass login or change logout/revocation behavior. New logins use a
+365-day token and persistent cookie, so closing the app should not itself require
+another login. After deploying the persistence fix, log out and log in once
+inside the installed app; existing tokens keep their previous expiry.
 If an older Home Screen shortcut still shows the old icon or browser controls,
 remove that shortcut and add it again after deployment.
 

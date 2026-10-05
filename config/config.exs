@@ -73,7 +73,9 @@ config :spark,
     "Ash.Domain": [section_order: [:resources, :policies, :authorization, :domain, :execution]]
   ]
 
+# Keep the authentication token and persistent browser cookie lifetimes aligned.
 config :open_track,
+  session_lifetime_days: 365,
   ecto_repos: [OpenTrack.Repo],
   generators: [timestamp_type: :utc_datetime],
   ash_domains: [OpenTrack.Storage, OpenTrack.Food, OpenTrack.Accounts]

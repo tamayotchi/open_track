@@ -120,6 +120,10 @@ See [installation and iPhone test checklist](docs/iphone-app.md).
   [follow-up tasks](TODO.md). Registration/login use ordinary CSRF-protected HTTP
   forms; the controller sets the session cookie directly, without a temporary-token
   handoff. Passwords and tokens are filtered from Phoenix logs.
+- New logins use a 365-day token and matching persistent browser cookie, configured
+  by `:session_lifetime_days`. Closing the browser or Home Screen app does not
+  intentionally clear the login; reopening does not extend the token's expiry.
+  Existing tokens keep their original expiry until a new login.
 - Password changes preserve existing sessions without extending their expiry.
   Explicit logout still revokes credentials. Mounted LiveViews recheck session
   validity on events, navigation, and background messages.

@@ -8,9 +8,12 @@ defmodule OpenTrack.Accounts.User do
     extensions: [AshAuthentication, AshStorage],
     data_layer: AshSqlite.DataLayer
 
+  @session_lifetime_days Application.compile_env!(:open_track, :session_lifetime_days)
+
   authentication do
     tokens do
       enabled? true
+      token_lifetime {@session_lifetime_days, :days}
       token_resource OpenTrack.Accounts.Token
       signing_secret OpenTrack.Secrets
       store_all_tokens? true

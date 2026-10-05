@@ -1,12 +1,17 @@
 defmodule OpenTrackWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :open_track
 
+  # Keep the cookie across browser/PWA restarts, for the same lifetime as the
+  # AshAuthentication token. Token expiry and revocation are still checked.
+  @session_max_age Application.compile_env!(:open_track, :session_lifetime_days) * 24 * 60 * 60
+
   # The session will be stored in the cookie and signed,
   # this means its contents can be read but not tampered with.
   # Set :encryption_salt if you would also like to encrypt it.
   @session_options [
     store: :cookie,
     key: "_open_track_key",
+    max_age: @session_max_age,
     signing_salt: "liYE6H/4",
     same_site: "Lax"
   ]

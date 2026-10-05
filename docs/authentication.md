@@ -59,6 +59,29 @@ identity and database unique index prevent duplicate nicknames, including case
 variants. Nicknames are reserved for future social features; login still accepts
 only an email and password.
 
+## Session lifetime and app restarts
+
+New login and registration tokens are valid for **365 days**. The signed,
+HTTP-only browser session cookie has a matching `Max-Age` and `Expires`, so it
+can survive closing Safari or the Home Screen app. Previously, the cookie was
+session-only even though its token had a longer lifetime; iOS could discard it
+when the app closed.
+
+`config/config.exs` sets `:session_lifetime_days`, read at compile time by both
+`User`'s AshAuthentication token configuration and `Endpoint`'s cookie options.
+Changing this setting requires recompiling/redeploying the application.
+Token signature, persisted-token presence, expiry, and revocation checks remain
+mandatory; keeping a cookie does not bypass them. Reopening the app does not
+issue a new token or extend its expiry. A longer lifetime also means a stolen
+session can remain usable longer until explicitly revoked.
+
+After deploying this change, **log out and log in once inside the installed
+app** to receive the persistent cookie and new one-year token. Existing tokens
+keep their original expiry, and old session-only cookies are not upgraded merely
+by loading an unchanged session. Safari and the Home Screen app can have separate
+cookie stores. Private browsing, clearing site data, iOS storage eviction, or
+rotating the application's signing secrets can still require another login.
+
 ## Session checks in HTTP and LiveView
 
 [`router.ex`](../lib/open_track_web/router.ex) uses ordinary Phoenix routes and
@@ -105,9 +128,10 @@ A mounted LiveView keeps its own assigns. Therefore `LiveUserAuth` attaches
 subject against the mounted actor. Revoked or expired sessions redirect at the
 next event/navigation; this is not an immediate broadcast disconnect of all tabs.
 
-The current forms do not offer remember-me login or automatic cookie-based
-restoration. Cookie issuance metadata, when present, and logout cleanup continue
-to use core AshAuthentication helpers.
+The current forms do not offer a separate remember-me token or refresh-token
+flow. Returning users authenticate using the persistent normal session cookie;
+its original token is not refreshed. Remember-me issuance metadata, when present,
+and logout cleanup continue to use core AshAuthentication helpers.
 
 ## Small integration details now owned by us
 
