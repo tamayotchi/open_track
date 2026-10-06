@@ -76,7 +76,6 @@ defmodule OpenTrack.MixProject do
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ash, "~> 3.0", override: true},
-      # Test browser caching on R2; mix.lock pins the fork branch's exact revision.
       {:ash_storage, github: "tamayotchi/ash_storage", branch: "feat/cacheable-signed-urls"},
       {:req_s3, "~> 0.2"},
       {:tzdata, "~> 1.2"},

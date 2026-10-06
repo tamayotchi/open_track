@@ -7,7 +7,8 @@ OpenTrack deploys to **https://track.tamayotchi.com** using Kamal 2, on the same
 - SSH as `root` using `~/.ssh/id_home_server`.
 - Port 4000 behind the existing Kamal proxy; no direct published application port.
 - SQLite at `/app/storage/open_track.db`, persisted in `open-track_storage`.
-- The existing private R2 bucket `tama-track` and existing OpenRouter key.
+- The existing shared R2 bucket `tama-track` and existing OpenRouter key.
+- Public images at `https://images.tamayotchi.com` via an R2 custom domain.
 
 This creates a **new database**, not a migration/import of tama_track's accounts
 or photos. Never reuse `tama-track_storage`; the database schemas differ.
@@ -39,7 +40,28 @@ those commands can expose resolved values.
 The shared R2 credentials grant access to the same bucket as tama_track. This
 is not storage isolation: do not run bucket-wide cleanup or apply new lifecycle
 rules without considering both apps. Existing development uploads may share
-this bucket too.
+this bucket too. The public custom domain exposes **all objects in this shared
+bucket** to anyone who knows their URLs.
+
+## Public image delivery
+
+`config/deploy.yml` sets the non-secret `R2_PUBLIC_BASE_URL` to
+`https://images.tamayotchi.com`. The domain connects directly to `tama-track` in
+Cloudflare, with minimum TLS 1.2. Keep the authenticated S3 endpoint and R2
+credentials unchanged; the public endpoint serves reads only.
+
+Before deploying, ensure domain ownership and TLS are active and configure the
+image-host-only Cache Rule described in [Cloudflare R2](../README.md#cloudflare-r2).
+It explicitly caches extensionless keys for one day at the edge and in browsers,
+without changing caching on the application hostname. Wrangler can connect the
+R2 domain, but its OAuth token may lack Cache Rules permissions; API automation
+requires a token scoped to this zone with **Cache Rules: Edit**.
+
+Verify a known image returns 200 and repeat the request to check for
+`CF-Cache-Status: HIT` and a one-day browser cache lifetime. Replacements use new
+keys. To remove deleted images promptly from shared caches, purge their public
+URLs in Cloudflare; this is not automatic, and browser-cached copies remain until
+expiry. No migration or re-upload of existing objects is required.
 
 ## HTTPS and routing prerequisites
 

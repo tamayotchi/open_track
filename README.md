@@ -118,9 +118,9 @@ and styles are bundled through `app.js` and `app.css`.
   validity on events, navigation, and background messages.
 - Blob and attachment resources are internal infrastructure, not public APIs.
   Owner and public-profile reads load AshStorage's `image_url` and `avatar_url`
-  calculations. Browsers download images directly from private R2 using
-  one-day signed URLs, reused within 23-hour, 59-minute windows so navigation can
-  reuse the browser cache. Phoenix does not download or proxy image bytes.
+  calculations. Browsers download images from the public Cloudflare image domain
+  using stable URLs and one-day edge/browser caching. Direct image requests bypass
+  Ash policies. Phoenix does not download or proxy image bytes.
 
 ```elixir
 upload = %Plug.Upload{
@@ -278,9 +278,12 @@ Kamal is configured for **https://track.tamayotchi.com**, reusing tama_track's
 See [production deployment](docs/production.md) for DNS/HTTPS prerequisites,
 secret mappings, and `kamal setup` / `kamal deploy` instructions.
 
-AshStorage currently uses the [`feat/cacheable-signed-urls` branch of our fork](https://github.com/tamayotchi/ash_storage/tree/feat/cacheable-signed-urls)
-to test browser caching on R2. `mix.lock` pins the exact revision.
-It stores image metadata in SQLite and bytes in a private Cloudflare R2 bucket.
+OpenTrack is testing native `public_base_url` support using the
+[`feat/cacheable-signed-urls` branch of our AshStorage fork](https://github.com/tamayotchi/ash_storage/tree/feat/cacheable-signed-urls).
+`mix.lock` pins the exact revision. AshStorage stores image metadata in SQLite and
+bytes in Cloudflare R2. Images are served publicly through a Cloudflare custom
+domain; Cloudflare handles caching without object-metadata changes or an
+application-defined storage wrapper.
 LiveView uploads allow one JPG, PNG, or WebP file of at most 8 MB. These are filename
 extension and upload-size restrictions, not full image decoding. Resource actions do
 not repeat those checks, and analysis forwards stored bytes with the recorded MIME
@@ -289,16 +292,20 @@ failures still fail analysis without deleting the saved photo.
 Generated AshStorage attachment actions remain internal infrastructure, not upload APIs.
 
 Storage configuration is resolved **at runtime**, not during compilation.
-Startup fails if the R2 account ID or credentials are missing. Tests use
-in-memory storage and do not require R2 credentials.
+Startup fails if the R2 account ID, credentials, or `R2_PUBLIC_BASE_URL` are missing.
+Tests use in-memory storage and do not require R2 credentials.
 
 ### Cloudflare R2
 
-Create a private bucket and set `R2_BUCKET` to its name (the existing default is
-`tama-track`). Use a separate bucket and credentials for production and development:
+Set `R2_BUCKET` to the bucket name (the existing default is `tama-track`) and connect
+an R2 custom domain for public reads. **Connecting that domain exposes every object
+in the bucket to anyone who knows its URL**, including uploads from the older app
+sharing `tama-track`. Use separate buckets and credentials for production and development.
+Do not use `r2.dev` for production CDN caching.
 
 ```sh
 export R2_BUCKET="open-track"
+export R2_PUBLIC_BASE_URL="https://images.example.com"
 export R2_ACCOUNT_ID="your-cloudflare-account-id"
 export R2_ACCESS_KEY_ID="your-access-key-id"
 export R2_SECRET_ACCESS_KEY="your-secret-access-key"
@@ -309,6 +316,7 @@ containing **secret references**, not secret values. Replace each example path
 with the reference copied from the corresponding field in your existing item:
 
 ```dotenv
+R2_PUBLIC_BASE_URL="https://images.example.com"
 R2_ACCOUNT_ID="op://YOUR_VAULT/YOUR_ITEM/YOUR_ACCOUNT_ID_FIELD"
 R2_ACCESS_KEY_ID="op://YOUR_VAULT/YOUR_ITEM/YOUR_ACCESS_KEY_ID_FIELD"
 R2_SECRET_ACCESS_KEY="op://YOUR_VAULT/YOUR_ITEM/YOUR_SECRET_ACCESS_KEY_FIELD"
@@ -325,31 +333,38 @@ Mix does not load `.env` itself; `op run` resolves the references and injects th
 values into the child process. The 1Password account is separate from the
 Cloudflare account identified by `R2_ACCOUNT_ID`.
 
-Food images use the `food/` prefix and avatars use `avatars/`. Ash policies authorize
-owner, public-profile, and followed-user feed reads before the app supplies URLs.
-The bucket stays private; Phoenix does not proxy image bytes.
+`AshStorage.Service.S3` uses `presigned: false` and `public_base_url` from
+`R2_PUBLIC_BASE_URL`. Authenticated storage operations keep using
+`https://<account-id>.r2.cloudflarestorage.com`. Only read URLs use
+`R2_PUBLIC_BASE_URL`: `/food/<key>` for photos and `/avatars/<key>` for avatars,
+without a bucket segment or signature. Do not replace the S3 API endpoint with
+the public domain. Phoenix does not proxy image bytes.
 
-`AshStorage.Service.S3` is configured with `presigned: true`, `expires_in: 86_400`,
-and `browser_cache: true` for both photos and avatars. URLs are reused within
-86,340-second windows (23 hours, 59 minutes) and expire one day after the window
-starts. Newly supplied URLs have at least 60 seconds remaining to begin a download.
-Replacement avatars use new blob keys and immediately get different URLs.
+Configure a Cloudflare **Cache Rule** scoped only to the image hostname:
 
-Signed S3 response overrides set `Cache-Control: private, must-revalidate` and an
-absolute `Expires` matching signature expiry. This allows browser caching, not
-shared/CDN caching. There is deliberately no relative `max-age`: an image first
-fetched late must not stay fresh beyond that URL's expiry. The overrides apply to
-existing images too, without rewriting object metadata or migrating the database.
-Anyone holding a signed URL can fetch the image until it expires, even after logout;
-downloaded copies cannot be revoked. Reload/navigate to obtain a current URL if a
-lazy-loaded image expires before downloading; there is no background refresh.
+- Expression: `(http.host eq "images.tamayotchi.com")` (use your own image hostname).
+- Cache eligibility: **Eligible for cache**, including extensionless object keys.
+- Edge TTL: **Ignore cache-control header and use this TTL**, **1 day** (86,400 seconds).
+- Status code TTL: **Do not store** responses with status **400–599** at the edge.
+- Browser TTL: **Override origin**, **1 day** (86,400 seconds).
+
+This policy covers existing and future images without re-uploading them. It must
+not match `track.tamayotchi.com` or authentication routes. A custom domain alone
+does not enable caching for these extensionless keys.
+
+Ash policies still authorize application reads and mutations, but **direct image
+requests are public and bypass those policies**. URLs do not expire and remain
+usable after logout. Replacing an avatar creates a new key and URL. Deleting an
+object does not immediately remove cached copies: purge its public URL from
+Cloudflare when prompt removal matters. Browser-cached/downloaded copies cannot
+be remotely revoked; this app does not automatically purge the CDN.
 
 To verify after deployment, leave DevTools Network's **Disable cache** unchecked,
-open a profile, then navigate home within the same window. Check that the same
-photo/avatar uses the identical URL and is served from memory/disk cache. On the
-initial R2 response, confirm `Cache-Control` and `Expires` above. Crossing a window
-boundary intentionally produces a new URL. Original uploads are still served;
-resized feed/avatar variants remain a separate first-download optimization.
+open a profile, then navigate home. The photo/avatar should retain its URL and be
+served from memory/disk cache. Separate HTTP requests should show a cache hit
+(`CF-Cache-Status: HIT`) after warming the edge and a one-day browser cache lifetime.
+Original uploads are still served; resized feed/avatar variants remain a separate
+first-download optimization.
 
 Only credential environment-variable names, not their values, are stored in
 blob options. Existing blobs retain their original storage locations, so changing

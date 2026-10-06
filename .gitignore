@@ -52,3 +52,6 @@ npm-debug.log
 /.kamal/secrets-common
 /.kamal/secrets.*
 /storage/
+
+# Local Cloudflare CLI cache and state.
+/.wrangler/

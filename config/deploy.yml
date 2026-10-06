@@ -43,6 +43,7 @@ env:
     DATABASE_PATH: /app/storage/open_track.db
     POOL_SIZE: 1
     R2_BUCKET: tama-track
+    R2_PUBLIC_BASE_URL: https://images.tamayotchi.com
   secret:
     - SECRET_KEY_BASE
     # Reuse the existing signing secret for AshAuthentication as requested.
