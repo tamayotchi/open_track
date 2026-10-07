@@ -71,14 +71,16 @@ when the app closed.
 `User`'s AshAuthentication token configuration and `Endpoint`'s cookie options.
 Changing this setting requires recompiling/redeploying the application.
 Token signature, persisted-token presence, expiry, and revocation checks remain
-mandatory; keeping a cookie does not bypass them. Reopening the app does not
-issue a new token or extend its expiry. A longer lifetime also means a stolen
-session can remain usable longer until explicitly revoked.
+mandatory; keeping a cookie does not bypass them. Authenticated HTTP requests
+refresh the cookie's 365-day lifetime, even when session contents are unchanged.
+This does not issue a new token or extend its expiry; LiveView events alone cannot
+refresh a browser cookie. A longer lifetime also means a stolen session can
+remain usable longer until explicitly revoked.
 
 After deploying this change, **log out and log in once inside the installed
 app** to receive the persistent cookie and new one-year token. Existing tokens
-keep their original expiry, and old session-only cookies are not upgraded merely
-by loading an unchanged session. Safari and the Home Screen app can have separate
+keep their original expiry, but still-valid session-only cookies become persistent
+on the next authenticated HTTP request. Safari and the Home Screen app can have separate
 cookie stores. Private browsing, clearing site data, iOS storage eviction, or
 rotating the application's signing secrets can still require another login.
 

@@ -56,9 +56,27 @@ defmodule OpenTrackWeb.PersistentSessionTest do
     assert html_response(reopened, 200)
     assert reopened.assigns.current_user.id == owner.id
     assert get_session(reopened, "user_token") == token
+    assert reopened.private.plug_session_info == :renew
+    assert reopened.resp_cookies[@cookie_key].max_age == @session_max_age
+    assert session_cookie_header(reopened) =~ "max-age=#{@session_max_age}"
 
     assert {:ok, _, _} =
              build_conn() |> put_req_cookie(@cookie_key, cookie) |> live("/app")
+  end
+
+  test "invalid sessions are cleared rather than renewed", %{conn: conn} do
+    owner = user()
+
+    {:ok, expired, _} =
+      Jwt.token_for_user(owner, %{"exp" => System.system_time(:second) - 60})
+
+    for token <- [expired, "invalid-token"] do
+      rejected = conn |> init_test_session(%{"user_token" => token}) |> get("/app")
+
+      assert redirected_to(rejected) == "/users/log-in"
+      refute get_session(rejected, "user_token")
+      refute rejected.private.plug_session_info == :renew
+    end
   end
 
   test "logout still rejects a saved persistent cookie on HTTP and LiveView", %{conn: conn} do
